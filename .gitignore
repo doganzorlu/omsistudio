@@ -1,0 +1,27 @@
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE/Editor files
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# .NET Build Output
+[Bb]in/
+[Oo]bj/
+publish/
+
+# NuGet Packages
+*.nupkg
+packages/
+
+# Test Results
+TestResults/
+*.trx
+*.cobertura.xml

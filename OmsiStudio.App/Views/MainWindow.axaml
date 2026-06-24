@@ -1,0 +1,215 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:OmsiStudio.App.ViewModels"
+        xmlns:models="using:OmsiStudio.Core.Assets"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="900" d:DesignHeight="600"
+        x:Class="OmsiStudio.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="OMSI Studio — Asset Browser"
+        Background="#121214"
+        Foreground="#e2e8f0">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <Grid ColumnDefinitions="320,*">
+        <!-- Sidebar Panel -->
+        <Border Grid.Column="0" Background="#1a1a1e" BorderBrush="#2a2a32" BorderThickness="0,0,1,0">
+            <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="16">
+                <!-- Header Title -->
+                <TextBlock Grid.Row="0" Text="OMSI Studio" FontSize="20" FontWeight="Bold" Foreground="#6366f1" Margin="0,0,0,4"/>
+                <TextBlock Grid.Row="1" Text="Scenery Object Browser" FontSize="12" Foreground="#94a3b8" Margin="0,0,0,16"/>
+
+                <!-- Root Selection Button & Info -->
+                <StackPanel Grid.Row="2" Margin="0,0,0,16">
+                    <Button Command="{Binding SelectFolderCommand}" 
+                            HorizontalAlignment="Stretch" 
+                            HorizontalContentAlignment="Center" 
+                            Background="#6366f1" 
+                            Foreground="White" 
+                            CornerRadius="6" 
+                            Padding="0,10">
+                        <TextBlock Text="Select OMSI Root Folder" FontWeight="SemiBold"/>
+                    </Button>
+                    <TextBlock Text="{Binding RootDirectory, FallbackValue='No folder selected'}" 
+                               FontSize="11" 
+                               Foreground="#64748b" 
+                               TextWrapping="Wrap" 
+                               Margin="0,6,0,0"/>
+                </StackPanel>
+
+                <!-- Search Input -->
+                <TextBox Grid.Row="3" 
+                         Text="{Binding SearchText, Mode=TwoWay}" 
+                         PlaceholderText="Search objects..." 
+                         CornerRadius="6" 
+                         Margin="0,0,0,12"
+                         IsEnabled="{Binding HasAssets}"/>
+
+                <!-- Asset List -->
+                <Grid Grid.Row="4" RowDefinitions="Auto,*">
+                    <TextBlock Grid.Row="0" 
+                               Text="{Binding AssetCount, StringFormat='Objects Found: {0}'}" 
+                               FontSize="11" 
+                               FontWeight="SemiBold" 
+                               Foreground="#94a3b8"                                 Margin="2,0,0,6"/>
+                    <ListBox Grid.Row="1" 
+                             ItemsSource="{Binding Assets}" 
+                             SelectedItem="{Binding SelectedAsset, Mode=TwoWay}"
+                             Background="Transparent"
+                             BorderThickness="0"
+                             CornerRadius="6">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate DataType="models:OmsiAsset">
+                                <StackPanel Margin="2,4">
+                                    <TextBlock Text="{Binding DisplayName, FallbackValue='(Untitled Object)'}" 
+                                               FontWeight="Medium" 
+                                               FontSize="13" 
+                                               Foreground="#f8fafc"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding RelativePath}" 
+                                               FontSize="11" 
+                                               Foreground="#64748b" 
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- Main Details / Status Panel -->
+        <Grid Grid.Column="1">
+            <!-- 1. Scanning State View -->
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="16" IsVisible="{Binding IsScanning}">
+                <ProgressBar IsIndeterminate="True" Width="220" Height="4" Foreground="#6366f1" Background="#2a2a32" CornerRadius="2"/>
+                <TextBlock Text="Scanning Sceneryobjects recursively..." Foreground="#94a3b8" HorizontalAlignment="Center" FontSize="13"/>
+            </StackPanel>
+
+            <!-- 2. Error State View -->
+            <Grid VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding HasError}">
+                <Border Background="#2a1215" BorderBrush="#ef4444" BorderThickness="1" CornerRadius="8" Padding="20" Width="400">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="Error Occurred" FontWeight="Bold" Foreground="#ef4444" FontSize="16"/>
+                        <TextBlock Text="{Binding ErrorMessage}" Foreground="#fca5a5" TextWrapping="Wrap" FontSize="13"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- 3. Welcome / Empty Directory State View -->
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12" 
+                        IsVisible="{Binding IsEmptyState}">
+                <TextBlock Text="Welcome to Asset Browser" FontSize="22" FontWeight="Bold" Foreground="#f8fafc" HorizontalAlignment="Center"/>
+                <TextBlock Text="To begin, click 'Select OMSI Root Folder' and select the directory where OMSI is installed." 
+                           Foreground="#94a3b8" 
+                           HorizontalAlignment="Center" 
+                           TextAlignment="Center" 
+                           MaxWidth="400" 
+                           TextWrapping="Wrap"
+                           FontSize="13"/>
+            </StackPanel>
+
+            <!-- 4. Asset details selected (Main View) -->
+            <ScrollViewer IsVisible="{Binding HasSelectedAsset}">
+                <StackPanel Margin="24" Spacing="20">
+                    <!-- Title Banner Card -->
+                    <Border Background="#1e1e24" BorderBrush="#2a2a32" BorderThickness="1" CornerRadius="8" Padding="20">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="{Binding SelectedAsset.DisplayName, FallbackValue='(Untitled Object)'}" 
+                                       FontSize="24" 
+                                       FontWeight="Bold" 
+                                       Foreground="#ffffff"/>
+                            <TextBlock Text="{Binding SelectedAsset.RelativePath, StringFormat='Relative Path: {0}'}" 
+                                       FontSize="13" 
+                                       Foreground="#94a3b8"/>
+                            <TextBlock Text="{Binding SelectedAsset.SourceScoPath, StringFormat='Full Path: {0}'}" 
+                                       FontSize="11" 
+                                       Foreground="#64748b" 
+                                       TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Description Card -->
+                    <Border Background="#1a1a1e" BorderBrush="#2a2a32" BorderThickness="1" CornerRadius="8" Padding="16">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="Description" FontSize="14" FontWeight="SemiBold" Foreground="#6366f1"/>
+                            <TextBlock Text="{Binding SelectedAsset.Description}" 
+                                       FontSize="13" 
+                                       Foreground="#e2e8f0" 
+                                       TextWrapping="Wrap"
+                                       IsVisible="{Binding SelectedAsset.Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                            <TextBlock Text="No description available for this object." 
+                                       FontSize="13" 
+                                       FontStyle="Italic" 
+                                       Foreground="#64748b"
+                                       IsVisible="{Binding SelectedAsset.Description, Converter={x:Static StringConverters.IsNullOrEmpty}}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Groups (Badges) -->
+                    <Border Background="#1a1a1e" BorderBrush="#2a2a32" BorderThickness="1" CornerRadius="8" Padding="16">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Group Hierarchy" FontSize="14" FontWeight="SemiBold" Foreground="#6366f1"/>
+                            <ItemsControl ItemsSource="{Binding SelectedAsset.Groups}" IsVisible="{Binding SelectedAsset.HasGroups}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#312e81" BorderBrush="#4338ca" BorderThickness="1" CornerRadius="12" Padding="10,4" Margin="0,0,8,8">
+                                            <TextBlock Text="{Binding}" FontSize="11" Foreground="#e0e7ff" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="No grouping categories specified." 
+                                       FontSize="13" 
+                                       FontStyle="Italic" 
+                                       Foreground="#64748b"
+                                       IsVisible="{Binding SelectedAsset.HasNoGroups}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Meshes (.o3d references) -->
+                    <Border Background="#1a1a1e" BorderBrush="#2a2a32" BorderThickness="1" CornerRadius="8" Padding="16">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="Associated Meshes (.o3d)" FontSize="14" FontWeight="SemiBold" Foreground="#6366f1"/>
+                            <ItemsControl ItemsSource="{Binding SelectedAsset.ModelReferences}" IsVisible="{Binding SelectedAsset.HasMeshes}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#121214" BorderBrush="#2a2a32" BorderThickness="1" CornerRadius="6" Padding="12,10" Margin="0,0,0,6">
+                                            <Grid ColumnDefinitions="Auto,*">
+                                                <TextBlock Grid.Column="0" Text="📦" FontSize="14" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{Binding MeshPath}" FontSize="13" Foreground="#e2e8f0" VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="No meshes referenced in this .sco file." 
+                                       FontSize="13" 
+                                       FontStyle="Italic" 
+                                       Foreground="#64748b"
+                                       IsVisible="{Binding SelectedAsset.HasNoMeshes}"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- 5. Default Selection prompt when assets are loaded but none selected -->
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8"
+                        IsVisible="{Binding ShowNoSelectionPrompt}">
+                <TextBlock Text="No Object Selected" FontSize="16" FontWeight="SemiBold" Foreground="#94a3b8" HorizontalAlignment="Center"/>
+                <TextBlock Text="Select an asset from the list to view its properties." Foreground="#64748b" FontSize="13" HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>
+
