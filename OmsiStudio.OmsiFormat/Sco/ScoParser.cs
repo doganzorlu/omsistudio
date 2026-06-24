@@ -18,7 +18,7 @@ public sealed class ScoParser
 
         try
         {
-            var lines = File.ReadAllLines(filePath);
+            var lines = ReadAllLinesWithEncoding(filePath);
             return Parse(filePath, lines);
         }
         catch (Exception ex)
@@ -31,6 +31,53 @@ public sealed class ScoParser
         }
     }
 
+    private string[] ReadAllLinesWithEncoding(string filePath)
+    {
+        System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance);
+
+        var bytes = File.ReadAllBytes(filePath);
+
+        if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+        {
+            return System.Text.Encoding.UTF8.GetString(bytes, 3, bytes.Length - 3)
+                .Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+        }
+
+        if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+        {
+            return System.Text.Encoding.BigEndianUnicode.GetString(bytes, 2, bytes.Length - 2)
+                .Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+        }
+
+        if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+        {
+            return System.Text.Encoding.Unicode.GetString(bytes, 2, bytes.Length - 2)
+                .Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+        }
+
+        try
+        {
+            var utf8Strict = new System.Text.UTF8Encoding(false, true);
+            var text = utf8Strict.GetString(bytes);
+            return text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+        }
+        catch (ArgumentException)
+        {
+            try
+            {
+                var fallbackEncoding = System.Text.Encoding.GetEncoding(1254);
+                var text = fallbackEncoding.GetString(bytes);
+                return text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+            }
+            catch
+            {
+                var fallbackEncoding = System.Text.Encoding.GetEncoding(1252);
+                var text = fallbackEncoding.GetString(bytes);
+                return text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+            }
+        }
+    }
+
     public ScoFile Parse(string filePath, IEnumerable<string> lines)
     {
         var friendlyName = string.Empty;
@@ -39,6 +86,11 @@ public sealed class ScoParser
         var meshes = new List<ScoMeshReference>();
         var textureReferences = new List<string>();
         var warnings = new List<string>();
+        var scripts = new List<string>();
+        var sounds = new List<string>();
+        var collisionMeshes = new List<string>();
+        var isNoCollision = false;
+        var isFixed = false;
 
         var lineList = lines
             .Select(l => l.Trim())
@@ -117,6 +169,38 @@ public sealed class ScoParser
                             meshes.Add(new ScoMeshReference(mesh));
                         }
                         break;
+
+                    case "[script]":
+                        var script = GetNextValueLine(lineList, ref i);
+                        if (script != null)
+                        {
+                            scripts.Add(script);
+                        }
+                        break;
+
+                    case "[sound]":
+                        var sound = GetNextValueLine(lineList, ref i);
+                        if (sound != null)
+                        {
+                            sounds.Add(sound);
+                        }
+                        break;
+
+                    case "[collision_mesh]":
+                        var colMesh = GetNextValueLine(lineList, ref i);
+                        if (colMesh != null)
+                        {
+                            collisionMeshes.Add(colMesh);
+                        }
+                        break;
+
+                    case "[nocollision]":
+                        isNoCollision = true;
+                        break;
+
+                    case "[fixed]":
+                        isFixed = true;
+                        break;
                 }
             }
         }
@@ -129,7 +213,12 @@ public sealed class ScoParser
             Groups = groups,
             Meshes = meshes,
             TextureReferences = textureReferences,
-            Warnings = warnings
+            Warnings = warnings,
+            ScriptReferences = scripts,
+            SoundReferences = sounds,
+            CollisionMeshReferences = collisionMeshes,
+            IsNoCollision = isNoCollision,
+            IsFixed = isFixed
         };
     }
 

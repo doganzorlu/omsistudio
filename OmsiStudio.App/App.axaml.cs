@@ -27,10 +27,14 @@ public partial class App : Application
             var directoryScanner = new OmsiDirectoryScanner();
             var scanner = new OmsiAssetScanner(parser, directoryScanner);
             var folderPickerService = new AvaloniaFolderPickerService();
+            var appSettingsService = new JsonAppSettingsService();
+
+            var viewModel = new MainWindowViewModel(scanner, folderPickerService, appSettingsService);
+            _ = viewModel.LoadSettingsAsync();
 
             desktop.MainWindow = new MainWindow
             {
-                DataContext = new MainWindowViewModel(scanner, folderPickerService),
+                DataContext = viewModel,
             };
         }
 

@@ -21,14 +21,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="Fixtures\Sco\*.sco">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\OmsiStudio.Core\OmsiStudio.Core.csproj" />
-    <ProjectReference Include="..\OmsiStudio.OmsiFormat\OmsiStudio.OmsiFormat.csproj" />
+    <ProjectReference Include="..\OmsiStudio.Conversion\OmsiStudio.Conversion.csproj" />
   </ItemGroup>
 
 </Project>

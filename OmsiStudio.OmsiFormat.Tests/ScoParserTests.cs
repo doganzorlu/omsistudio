@@ -140,4 +140,46 @@ public class ScoParserTests
         Assert.Single(result.Meshes);
         Assert.Equal("models\\builder's_wall.o3d", result.Meshes[0].MeshPath);
     }
+
+    [Fact]
+    public void Parse_ShouldExtractExpandedMetadata_ScriptsSoundsCollisionsAndFlags()
+    {
+        // Arrange
+        var lines = new[]
+        {
+            "' General comments",
+            "[friendlyname]",
+            "Expanded Test Object",
+            "",
+            "[script]",
+            "scripts\\my_script.osc",
+            "[script]",
+            "scripts\\another_script.osc",
+            "",
+            "[sound]",
+            "sound\\my_sound.cfg",
+            "",
+            "[collision_mesh]",
+            "collision\\box.o3d",
+            "",
+            "[nocollision]",
+            "[fixed]"
+        };
+        var parser = new ScoParser();
+
+        // Act
+        var result = parser.Parse("test.sco", lines);
+
+        // Assert
+        Assert.Equal("Expanded Test Object", result.FriendlyName);
+        Assert.Equal(2, result.ScriptReferences.Count);
+        Assert.Equal("scripts\\my_script.osc", result.ScriptReferences[0]);
+        Assert.Equal("scripts\\another_script.osc", result.ScriptReferences[1]);
+        Assert.Single(result.SoundReferences);
+        Assert.Equal("sound\\my_sound.cfg", result.SoundReferences[0]);
+        Assert.Single(result.CollisionMeshReferences);
+        Assert.Equal("collision\\box.o3d", result.CollisionMeshReferences[0]);
+        Assert.True(result.IsNoCollision);
+        Assert.True(result.IsFixed);
+    }
 }

@@ -11,10 +11,13 @@ public sealed class OmsiAsset
     public string Description { get; init; } = string.Empty;
     public IReadOnlyList<string> Groups { get; init; } = [];
     public IReadOnlyList<OmsiModelReference> ModelReferences { get; init; } = [];
+    public IReadOnlyList<string> TextureReferences { get; init; } = [];
 
     // Helper properties for UI data binding
     public bool HasGroups => Groups != null && Groups.Count > 0;
     public bool HasNoGroups => !HasGroups;
     public bool HasMeshes => ModelReferences != null && ModelReferences.Count > 0;
     public bool HasNoMeshes => !HasMeshes;
+    public bool HasTextures => TextureReferences != null && TextureReferences.Count > 0;
+    public bool HasNoTextures => !HasTextures;
 }

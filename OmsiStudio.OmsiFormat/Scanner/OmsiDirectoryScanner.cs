@@ -27,16 +27,7 @@ public class OmsiDirectoryScanner : IOmsiDirectoryScanner
             yield break;
         }
 
-        IEnumerable<string> files;
-        try
-        {
-            files = Directory.EnumerateFiles(sceneryObjectsDir, "*", SearchOption.AllDirectories);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error enumerating files in {sceneryObjectsDir}: {ex.Message}");
-            yield break;
-        }
+        var files = Directory.EnumerateFiles(sceneryObjectsDir, "*", SearchOption.AllDirectories);
 
         foreach (var file in files)
         {

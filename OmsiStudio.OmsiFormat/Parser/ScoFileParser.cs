@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using OmsiStudio.Core.Assets;
@@ -13,7 +14,13 @@ public class ScoFileParser : IScoFileParser
 
     public OmsiAsset Parse(string filePath, string relativePath)
     {
+        return Parse(filePath, relativePath, out _);
+    }
+
+    public OmsiAsset Parse(string filePath, string relativePath, out IReadOnlyList<string> warnings)
+    {
         var scoFile = _parser.ParseFile(filePath);
+        warnings = scoFile.Warnings;
 
         return new OmsiAsset
         {
@@ -25,7 +32,8 @@ public class ScoFileParser : IScoFileParser
             RelativePath = relativePath,
             Description = scoFile.Description,
             Groups = scoFile.Groups,
-            ModelReferences = scoFile.Meshes.Select(m => new OmsiModelReference(m.MeshPath)).ToList()
+            ModelReferences = scoFile.Meshes.Select(m => new OmsiModelReference(m.MeshPath)).ToList(),
+            TextureReferences = scoFile.TextureReferences
         };
     }
 }

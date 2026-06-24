@@ -13,6 +13,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OmsiStudio.Conversion", "Om
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OmsiStudio.OmsiFormat.Tests", "OmsiStudio.OmsiFormat.Tests\OmsiStudio.OmsiFormat.Tests.csproj", "{B20C2657-D32F-472C-A0F6-76F839135712}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OmsiStudio.App.Tests", "OmsiStudio.App.Tests\OmsiStudio.App.Tests.csproj", "{4FA972BA-65CA-4AF4-B826-8C0FD7D585E1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OmsiStudio.Conversion.Tests", "OmsiStudio.Conversion.Tests\OmsiStudio.Conversion.Tests.csproj", "{58B2DF0B-FAB3-4B99-A486-2ED4E6562368}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -42,5 +46,13 @@ Global
 		{B20C2657-D32F-472C-A0F6-76F839135712}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B20C2657-D32F-472C-A0F6-76F839135712}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B20C2657-D32F-472C-A0F6-76F839135712}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4FA972BA-65CA-4AF4-B826-8C0FD7D585E1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4FA972BA-65CA-4AF4-B826-8C0FD7D585E1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4FA972BA-65CA-4AF4-B826-8C0FD7D585E1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4FA972BA-65CA-4AF4-B826-8C0FD7D585E1}.Release|Any CPU.Build.0 = Release|Any CPU
+		{58B2DF0B-FAB3-4B99-A486-2ED4E6562368}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{58B2DF0B-FAB3-4B99-A486-2ED4E6562368}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{58B2DF0B-FAB3-4B99-A486-2ED4E6562368}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{58B2DF0B-FAB3-4B99-A486-2ED4E6562368}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

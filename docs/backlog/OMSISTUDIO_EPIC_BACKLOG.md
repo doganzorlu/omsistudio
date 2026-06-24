@@ -10,8 +10,14 @@ This document outlines the roadmap, priority groups, and status of OmsiStudio ta
 *   **GOV-001 - Remove Non-Existent check.sh Requirement From Governance Docs**
     *   *Purpose*: Replaced references to missing `check.sh` with `dotnet build` / `dotnet test` validation.
     *   *Area*: `docs/AI_Governance/`
+*   **GOV-002 - Split Test Projects**
+    *   *Purpose*: Separated `OmsiStudio.OmsiFormat.Tests` into dedicated, separate test projects for App and Conversion layers to prevent dependency pollution.
+    *   *Area*: Solution structure
 *   **GOV-003 - Initialize Git Repository and Add .gitignore**
     *   *Purpose*: Initialized Git locally and added a standard `.gitignore` to keep workspace clean.
+    *   *Area*: Workspace root
+*   **GOV-004 - Create Project README and Developer Runbook**
+    *   *Purpose*: Created a comprehensive root `README.md` defining project purpose, architecture layers, build/test/run commands, test structure, manifest export details, and known governance.
     *   *Area*: Workspace root
 
 ### OS-001 - Scenery Object Browser Baseline
@@ -30,79 +36,88 @@ This document outlines the roadmap, priority groups, and status of OmsiStudio ta
 *   **OS-001-TASK-004 - Wire Scanner Into MainWindowViewModel**
     *   *Purpose*: Wired the parser/scanner pipeline to the Avalonia UI using dependency injection and abstracted folder picking.
     *   *Area*: `OmsiStudio.App`
+*   **OS-001-TASK-005 - Main UI Binding Cleanup**
+    *   *Purpose*: Tidied up UI/XAML bindings and ensured responsiveness when displaying asset list filters.
+    *   *Area*: `OmsiStudio.App` (Views/ViewModels)
+*   **OS-001-TASK-006 - Scan Result Reporting**
+    *   *Purpose*: Mapped parser warnings/errors into the `OmsiScanResult` structure and surfaced them in the UI status panel.
+    *   *Area*: `OmsiStudio.Core`, `OmsiStudio.App`
+*   **OS-001-TASK-007 - Asset Grouping**
+    *   *Purpose*: Implemented grouping view of scenery objects by relative directories or parsed category names.
+    *   *Area*: `OmsiStudio.App` (ViewModels/XAML)
+*   **OS-001-TASK-008 - Persist Last OMSI Root**
+    *   *Purpose*: Saved the last successfully scanned OMSI root path to local settings and reloaded it on startup.
+    *   *Area*: `OmsiStudio.App`
+
+### OS-002 - SCO Parser Encoding & Fixtures
+*   **OS-002-TASK-001 - Expand SCO Metadata Parsing**
+    *   *Purpose*: Parsed additional `.sco` tags (such as sound, script, collision mesh references, etc.) recursively.
+    *   *Area*: `OmsiStudio.OmsiFormat` (ScoParser)
+*   **OS-002-TASK-002 - Encoding Support**
+    *   *Purpose*: Supported encodings (like system ANSI, windows-1252/1254) for correct character display in localized files.
+    *   *Area*: `OmsiStudio.OmsiFormat` (ScoParser)
+*   **OS-002-TASK-003 - Parser Fixtures**
+    *   *Purpose*: Added testing fixtures with pre-constructed `.sco` files representing different OMSI versions to avoid regression.
+    *   *Area*: `OmsiStudio.OmsiFormat.Tests`
+
+### App Usability, Localization & Error Handling
+*   **OS-003-TASK-001 - Search and Filter Improvements**
+    *   *Purpose*: Enhanced search capability to match nested categories, asset tags, description, path, or mesh references with multi-token support.
+    *   *Area*: `OmsiStudio.App`
+*   **OS-003-TASK-004 - Add Turkish/English Localization Support**
+    *   *Purpose*: Added localization service for dynamic language switching (TR/EN) in XAML/ViewModel.
+    *   *Area*: `OmsiStudio.App`
+*   **OS-003-TASK-002B - Complete Asset Detail Metadata Display**
+    *   *Purpose*: Extracted and displayed texture references in the scenery object detail panel.
+    *   *Area*: `OmsiStudio.Core`, `OmsiStudio.OmsiFormat`, `OmsiStudio.App`
+*   **OS-003-FIX-003 - Finish Asset Detail Command Error Propagation**
+    *   *Purpose*: Resolved launcher service exceptions swallowing and wired meaningful error reporting back to the UI.
+    *   *Area*: `OmsiStudio.App`
+*   **OS-003-TASK-003 - Cancellation and Progress**
+    *   *Purpose*: Allowed users to cancel active directory scans and show dynamic progress info in the UI.
+    *   *Area*: `OmsiStudio.App`, `OmsiStudio.OmsiFormat`
+
+### OS-004 - Conversion Domain & Manifest Preparation
+*   **OS-004-TASK-001 - Conversion Domain Contracts**
+    *   *Purpose*: Formulated target formats, request, and result contracts and implemented a placeholder conversion service.
+    *   *Area*: `OmsiStudio.Core`, `OmsiStudio.Conversion`
+*   **OS-004-FIX-001 - Validate Conversion Output Directory Contract**
+    *   *Purpose*: Implemented validation rules to require target output directory to be non-empty and a fully qualified absolute path.
+    *   *Area*: `OmsiStudio.Conversion`
+*   **OS-004-TASK-002 - Create Export Manifest Prototype**
+    *   *Purpose*: Drafted a prototype manifest creator models, contracts, and serializers to track exported assets list.
+    *   *Area*: `OmsiStudio.Core`, `OmsiStudio.Conversion`
+
+### OS-005 - 3D/O3D Format Research & Reference Resolution
+*   **OS-005-SPIKE-001 - O3D Format Research**
+    *   *Purpose*: Performed format research regarding the binary `.o3d` structures to prepare for future reading and documented findings.
+    *   *Area*: `docs/spikes/`
+*   **OS-005-TASK-001 - Model Reference Resolution**
+    *   *Purpose*: Match referenced `.o3d` mesh names in `.sco` files against existing model subdirectories and track missing/invalid file resolution.
+    *   *Area*: `OmsiStudio.OmsiFormat`, `OmsiStudio.Core`
+
+### OS-006 - OMSI Asset Converter MVP
+*   **OS-006-TASK-001 - Add Manifest-Only Export for Selected Asset**
+    *   *Purpose*: Implement folder picking, manifest conversion, JSON serialization, and deterministic file saving to support manifest-only exports.
+    *   *Area*: `OmsiStudio.App`, `OmsiStudio.Conversion`
+*   **OS-006-FIX-001 - Stabilize Manifest Export UI Bindings and Test Cleanup**
+    *   *Purpose*: Fixed Avalonia UI data binding refresh by adding missing `NotifyPropertyChangedFor` triggers, and refactored conversion tests to clean up temporary output files.
+    *   *Area*: `OmsiStudio.App`, `OmsiStudio.Conversion.Tests`
 
 ---
 
 ## 📋 Planned Backlog
 
-### P0 - Temel Browser MVP
-*   **OS-001-TASK-005 - Main UI Binding Cleanup**
-    *   *Purpose*: Tidy up UI/XAML bindings and ensure responsiveness when displaying asset list filters.
-    *   *Area*: `OmsiStudio.App` (Views/ViewModels)
-    *   *Scope Creep Note*: Restrict purely to wiring cleanups. Avoid redesigning or restyling the UI layout.
-*   **OS-001-TASK-006 - Scan Result Reporting**
-    *   *Purpose*: Map parser warnings/errors into the `OmsiScanResult` structure and surface them in the UI status panel.
-    *   *Area*: `OmsiStudio.Core`, `OmsiStudio.App`
-    *   *Scope Creep Note*: Surface counts and warning lists only; do not add automated error-fixing actions.
-*   **OS-001-TASK-007 - Asset Grouping**
-    *   *Purpose*: Implement grouping view of scenery objects by relative directories or parsed category names.
-    *   *Area*: `OmsiStudio.App` (ViewModels/XAML)
-    *   *Scope Creep Note*: Strictly focus on directory grouping lists; avoid complex tree view animations.
-*   **OS-001-TASK-008 - Persist Last OMSI Root**
-    *   *Purpose*: Save the last successfully scanned OMSI root path to local settings and reload it on startup.
-    *   *Area*: `OmsiStudio.App`
-    *   *Scope Creep Note*: Store path in a simple JSON or text config file; do not set up a database/registry configuration store.
-
-### P1 - Parser Kalitesi
-*   **OS-002-TASK-001 - Expand SCO Metadata Parsing**
-    *   *Purpose*: Parse additional `.sco` tags (such as display names, localizations, or properties) recursively.
-    *   *Area*: `OmsiStudio.OmsiFormat` (ScoParser)
-    *   *Scope Creep Note*: Do not parse complex physics/script tokens. Keep to basic metadata strings.
-*   **OS-002-TASK-002 - Encoding Support**
-    *   *Purpose*: Support encodings (like system ANSI, windows-1252/1254) for correct character display in localized files.
-    *   *Area*: `OmsiStudio.OmsiFormat` (ScoParser)
-    *   *Scope Creep Note*: Only handle file loading encoding mappings; do not implement file rewriting.
-*   **OS-002-TASK-003 - Parser Fixtures**
-    *   *Purpose*: Add testing fixtures with pre-constructed `.sco` files representing different OMSI versions to avoid regression.
-    *   *Area*: `OmsiStudio.OmsiFormat.Tests`
-    *   *Scope Creep Note*: Keep to read-only resource-embedded files or simple strings.
-
 ### P1 - App Kullanılabilirliği
-*   **OS-003-TASK-001 - Search and Filter Improvements**
-    *   *Purpose*: Enhance search capability to match nested categories, asset tags, or multiple keywords.
-    *   *Area*: `OmsiStudio.App` (ViewModels)
-    *   *Scope Creep Note*: Avoid adding external indexing libraries; stick to standard LINQ filtering.
-*   **OS-003-TASK-002 - Asset Detail Improvements**
-    *   *Purpose*: Render detailed sections for categories, mesh paths, and textures in a tabbed panel.
-    *   *Area*: `OmsiStudio.App` (Views/XAML)
-    *   *Scope Creep Note*: Document texture names only; do not attempt to render or verify files on disk.
-*   **OS-003-TASK-003 - Cancellation and Progress**
-    *   *Purpose*: Allow users to cancel active directory scans and show a progress percentage in the UI.
-    *   *Area*: `OmsiStudio.App`, `OmsiStudio.OmsiFormat` (Scanner)
-    *   *Scope Creep Note*: Restrict to CancellationToken triggers and simple progress bars.
+*(No pending tasks)*
 
 ### P2 - Conversion Hazırlığı
-*   **OS-004-TASK-001 - Conversion Domain Contracts**
-    *   *Purpose*: Define contracts and models for file conversion operations (e.g. exporting scenery objects).
-    *   *Area*: `OmsiStudio.Core`, `OmsiStudio.Conversion`
-    *   *Scope Creep Note*: Define abstractions only; do not write actual conversion implementations.
-*   **OS-004-TASK-002 - Export Manifest Prototype**
-    *   *Purpose*: Draft a prototype manifest creator to track exported assets list.
-    *   *Area*: `OmsiStudio.Conversion`
-    *   *Scope Creep Note*: Prototype simple text/JSON manifest formats; do not connect to external packager utilities.
+*(No pending tasks)*
+
 
 ### P2 - 3D/O3D Ön Hazırlık
-*   **OS-005-SPIKE-001 - O3D Format Research**
-    *   *Purpose*: Perform format research regarding the binary `.o3d` structures to prepare for future reading.
-    *   *Area*: `docs/spikes/`
-    *   *Scope Creep Note*: Spiking only (writing technical logs/documentation); no parser code changes allowed.
-*   **OS-005-TASK-001 - Model Reference Resolution**
-    *   *Purpose*: Match referenced `.o3d` mesh names in `.sco` files against existing model subdirectories.
-    *   *Area*: `OmsiStudio.OmsiFormat`
-    *   *Scope Creep Note*: Resolve paths on disk; do not parse file contents or perform validation of binary mesh vertices.
+*(No pending tasks)*
 
 ### P3 - Governance / Project Hygiene
-*   **GOV-002 - Split Test Projects**
-    *   *Purpose*: Separate `OmsiStudio.OmsiFormat.Tests` into dedicated, separate test projects for Core, App, and Format layers.
-    *   *Area*: Solution structure
-    *   *Scope Creep Note*: Limit changes to moving test files and updating project configurations.
+*(No pending tasks)*
+

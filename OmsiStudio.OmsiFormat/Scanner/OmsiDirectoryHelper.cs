@@ -23,9 +23,9 @@ public static class OmsiDirectoryHelper
                 return dir;
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            Console.WriteLine($"Error locating sceneryobjects directory case-insensitively: {ex.Message}");
+            // Ignore exception here; caller will check if the returned directory exists
         }
 
         return Path.Combine(rootDirectory, "Sceneryobjects");
