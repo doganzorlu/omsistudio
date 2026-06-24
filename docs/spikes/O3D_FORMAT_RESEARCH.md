@@ -117,6 +117,15 @@ Integrate the parser into the `AssetConversionService` to translate the parsed g
 
 ---
 
+## Implementation Note (June 2026)
+
+Phase 1 (Test Fixtures) and Phase 2 (Metadata Parser) of the O3D roadmap have been fully completed under the **OS-006-FEATURE-001 - O3D Metadata Pipeline** epic.
+*   **Contract**: The service interface `IO3dMetadataReader` in `OmsiStudio.Core` defines the metadata parsing contract, implemented by `O3dMetadataReader` in `OmsiStudio.OmsiFormat` and integrated directly into the `OmsiAssetScanner` flow.
+*   **Safety & Diagnostics**: Robust bounds checking prevents Denial of Service (DoS) memory allocation attacks, validates string boundaries, protects against truncated streams, and generates structured `O3dDiagnostic` results instead of leaking raw stream exceptions.
+*   **Scope Boundaries**: In accordance with the strict epic exclusions, **Phase 3 (Geometry & Material Parser)** and **Phase 4 (glTF/OBJ Exporter)** remain unimplemented. No geometry buffers (vertices/indices) are parsed, and no 3D viewport rendering or mesh conversion/export capabilities exist in the codebase.
+
+---
+
 ## 6. Cited Sources
 
 1.  **Blender-O3D-IO-Public GitHub Repository**: [space928/Blender-O3D-IO-Public](https://github.com/space928/Blender-O3D-IO-Public) (Source for `o3dconvert.py` binary formats).

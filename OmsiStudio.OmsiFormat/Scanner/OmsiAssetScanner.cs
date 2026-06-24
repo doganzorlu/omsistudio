@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using OmsiStudio.Core.Assets;
 using OmsiStudio.Core.Scanning;
 using OmsiStudio.Core.Services;
+using OmsiStudio.OmsiFormat.Parser;
 
 namespace OmsiStudio.OmsiFormat.Scanner;
 
@@ -16,14 +17,15 @@ public class OmsiAssetScanner : IOmsiAssetScanner
     private readonly IScoFileParser _parser;
     private readonly IOmsiDirectoryScanner _directoryScanner;
     private readonly IOmsiModelReferenceResolver _modelReferenceResolver;
+    private readonly IO3dMetadataReader _metadataReader;
 
     public OmsiAssetScanner(IScoFileParser parser) 
-        : this(parser, new OmsiDirectoryScanner(), new OmsiModelReferenceResolver())
+        : this(parser, new OmsiDirectoryScanner(), new OmsiModelReferenceResolver(), new O3dMetadataReader())
     {
     }
 
     public OmsiAssetScanner(IScoFileParser parser, IOmsiDirectoryScanner directoryScanner)
-        : this(parser, directoryScanner, new OmsiModelReferenceResolver())
+        : this(parser, directoryScanner, new OmsiModelReferenceResolver(), new O3dMetadataReader())
     {
     }
 
@@ -31,10 +33,20 @@ public class OmsiAssetScanner : IOmsiAssetScanner
         IScoFileParser parser, 
         IOmsiDirectoryScanner directoryScanner, 
         IOmsiModelReferenceResolver modelReferenceResolver)
+        : this(parser, directoryScanner, modelReferenceResolver, new O3dMetadataReader())
+    {
+    }
+
+    public OmsiAssetScanner(
+        IScoFileParser parser, 
+        IOmsiDirectoryScanner directoryScanner, 
+        IOmsiModelReferenceResolver modelReferenceResolver,
+        IO3dMetadataReader metadataReader)
     {
         _parser = parser ?? throw new ArgumentNullException(nameof(parser));
         _directoryScanner = directoryScanner ?? throw new ArgumentNullException(nameof(directoryScanner));
         _modelReferenceResolver = modelReferenceResolver ?? throw new ArgumentNullException(nameof(modelReferenceResolver));
+        _metadataReader = metadataReader ?? throw new ArgumentNullException(nameof(metadataReader));
     }
 
     public async IAsyncEnumerable<OmsiAsset> ScanDirectoryAsync(
@@ -59,7 +71,11 @@ public class OmsiAssetScanner : IOmsiAssetScanner
             {
                 var relativePath = Path.GetRelativePath(sceneryObjectsDir, file);
                 asset = _parser.Parse(file, relativePath, out _);
-                asset = ResolveModelReferences(rootDirectory, asset, null);
+                asset = await ResolveModelReferencesAndMetadataAsync(rootDirectory, asset, null, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                break;
             }
             catch (Exception)
             {
@@ -151,8 +167,12 @@ public class OmsiAssetScanner : IOmsiAssetScanner
                             warnings.Add($"[{Path.GetFileName(file)}] {warning}");
                         }
                     }
-                    asset = ResolveModelReferences(rootDirectory, asset, warnings);
+                    asset = await ResolveModelReferencesAndMetadataAsync(rootDirectory, asset, warnings, cancellationToken);
                     parsedCount++;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -187,10 +207,11 @@ public class OmsiAssetScanner : IOmsiAssetScanner
         };
     }
 
-    private OmsiAsset ResolveModelReferences(
+    private async Task<OmsiAsset> ResolveModelReferencesAndMetadataAsync(
         string rootDirectory, 
         OmsiAsset asset, 
-        ICollection<string>? warningsCollector)
+        ICollection<string>? warningsCollector,
+        CancellationToken cancellationToken)
     {
         if (asset.ModelReferences == null || asset.ModelReferences.Count == 0)
         {
@@ -203,7 +224,49 @@ public class OmsiAssetScanner : IOmsiAssetScanner
         {
             if (modelRef == null) continue;
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             var resolved = _modelReferenceResolver.Resolve(rootDirectory, asset.SourceScoPath, modelRef.MeshPath);
+
+            var shouldReadMetadata = resolved.Exists &&
+                                     resolved.ResolutionStatus == OmsiModelReferenceResolutionStatus.Resolved &&
+                                     !string.IsNullOrEmpty(resolved.ResolvedPath) &&
+                                     Path.GetExtension(resolved.ResolvedPath).Equals(".o3d", StringComparison.OrdinalIgnoreCase);
+
+            if (shouldReadMetadata)
+            {
+                try
+                {
+                    var readResult = await _metadataReader.ReadAsync(resolved.ResolvedPath, cancellationToken);
+                    resolved = new OmsiModelReference(resolved.MeshPath, resolved.ResolvedPath, resolved.Exists, resolved.ResolutionStatus)
+                    {
+                        Metadata = readResult.Metadata,
+                        MetadataStatus = readResult.Status,
+                        MetadataDiagnostics = readResult.Diagnostics
+                    };
+
+                    if (warningsCollector != null && readResult.Diagnostics != null)
+                    {
+                        foreach (var diag in readResult.Diagnostics)
+                        {
+                            warningsCollector.Add($"[{Path.GetFileName(asset.SourceScoPath)}] Model reference metadata warning/error in '{modelRef.MeshPath}': [{diag.Code}] {diag.Message}");
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    resolved = new OmsiModelReference(resolved.MeshPath, resolved.ResolvedPath, resolved.Exists, resolved.ResolutionStatus)
+                    {
+                        MetadataStatus = O3dMetadataStatus.Failed
+                    };
+                    warningsCollector?.Add($"[{Path.GetFileName(asset.SourceScoPath)}] Failed to read metadata for '{modelRef.MeshPath}': {ex.Message}");
+                }
+            }
+
             resolvedList.Add(resolved);
 
             if (warningsCollector != null)

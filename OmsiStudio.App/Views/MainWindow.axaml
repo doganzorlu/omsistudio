@@ -352,10 +352,80 @@
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <Border Background="#121214" BorderBrush="#2a2a32" BorderThickness="1" CornerRadius="6" Padding="12,10" Margin="0,0,0,6">
-                                                <Grid ColumnDefinitions="Auto,*">
-                                                    <TextBlock Grid.Column="0" Text="📦" FontSize="14" Margin="0,0,10,0" VerticalAlignment="Center"/>
-                                                    <TextBlock Grid.Column="1" Text="{Binding MeshPath}" FontSize="13" Foreground="#e2e8f0" VerticalAlignment="Center"/>
-                                                </Grid>
+                                                <StackPanel Spacing="8">
+                                                    <Grid ColumnDefinitions="Auto,*">
+                                                        <TextBlock Grid.Column="0" Text="📦" FontSize="14" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="1" Text="{Binding MeshPath}" FontSize="13" FontWeight="SemiBold" Foreground="#e2e8f0" VerticalAlignment="Center"/>
+                                                    </Grid>
+                                                    
+                                                    <!-- Metadata details when available -->
+                                                    <StackPanel Margin="24,4,0,0" Spacing="6" IsVisible="{Binding HasMetadata}">
+                                                        <Border Background="#1a1a1e" BorderBrush="#2e2e38" BorderThickness="1" CornerRadius="4" Padding="10" Margin="0,2,0,0">
+                                                            <StackPanel Spacing="6">
+                                                                <TextBlock Text="{Binding $parent[Window].DataContext.L[O3dMetadataTitle]}" FontSize="12" FontWeight="Bold" Foreground="#818cf8"/>
+                                                                
+                                                                <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,4,0,0">
+                                                                    <!-- Version -->
+                                                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="{Binding $parent[Window].DataContext.L[O3dVersion]}" FontSize="11" Foreground="#94a3b8" Margin="0,0,12,3"/>
+                                                                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Metadata.Version}" FontSize="11" Foreground="#f8fafc" FontWeight="Medium" Margin="0,0,0,3"/>
+                                                                    
+                                                                    <!-- Encrypted -->
+                                                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding $parent[Window].DataContext.L[O3dEncrypted]}" FontSize="11" Foreground="#94a3b8" Margin="0,0,12,3"/>
+                                                                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Metadata.IsEncrypted}" FontSize="11" Foreground="#f8fafc" FontWeight="Medium" Margin="0,0,0,3"/>
+                                                                    
+                                                                    <!-- Mesh Count -->
+                                                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="{Binding $parent[Window].DataContext.L[O3dMeshCount]}" FontSize="11" Foreground="#94a3b8" Margin="0,0,12,3"/>
+                                                                    <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Metadata.MeshCount}" FontSize="11" Foreground="#f8fafc" FontWeight="Medium" Margin="0,0,0,3"/>
+                                                                    
+                                                                    <!-- Vertex Count -->
+                                                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="{Binding $parent[Window].DataContext.L[O3dVertexCount]}" FontSize="11" Foreground="#94a3b8" Margin="0,0,12,3"/>
+                                                                    <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Metadata.VertexCount}" FontSize="11" Foreground="#f8fafc" FontWeight="Medium" Margin="0,0,0,3"/>
+                                                                    
+                                                                    <!-- Triangle Count -->
+                                                                    <TextBlock Grid.Row="4" Grid.Column="0" Text="{Binding $parent[Window].DataContext.L[O3dTriangleCount]}" FontSize="11" Foreground="#94a3b8" Margin="0,0,12,3"/>
+                                                                    <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Metadata.TriangleCount}" FontSize="11" Foreground="#f8fafc" FontWeight="Medium" Margin="0,0,0,3"/>
+                                                                    
+                                                                    <!-- Material Count -->
+                                                                    <TextBlock Grid.Row="5" Grid.Column="0" Text="{Binding $parent[Window].DataContext.L[O3dMaterialCount]}" FontSize="11" Foreground="#94a3b8" Margin="0,0,12,3"/>
+                                                                    <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding Metadata.MaterialCount}" FontSize="11" Foreground="#f8fafc" FontWeight="Medium" Margin="0,0,0,3"/>
+                                                                </Grid>
+                                                                
+                                                                <!-- Texture References -->
+                                                                <StackPanel Margin="0,6,0,0" Spacing="3">
+                                                                    <TextBlock Text="{Binding $parent[Window].DataContext.L[O3dTextureReferences]}" FontSize="11" FontWeight="Bold" Foreground="#94a3b8"/>
+                                                                    <ItemsControl ItemsSource="{Binding Metadata.TextureReferences}">
+                                                                        <ItemsControl.ItemTemplate>
+                                                                            <DataTemplate>
+                                                                                <TextBlock Text="{Binding Path}" FontSize="11" Foreground="#cbd5e1" Margin="8,0,0,1"/>
+                                                                            </DataTemplate>
+                                                                        </ItemsControl.ItemTemplate>
+                                                                    </ItemsControl>
+                                                                </StackPanel>
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </StackPanel>
+                                                    
+                                                    <!-- No metadata available style fallback -->
+                                                    <StackPanel Margin="24,2,0,0" IsVisible="{Binding HasNoMetadata}">
+                                                        <TextBlock Text="{Binding $parent[Window].DataContext.L[O3dNoMetadata]}" FontSize="11" FontStyle="Italic" Foreground="#64748b"/>
+                                                    </StackPanel>
+                                                    
+                                                    <!-- Diagnostics (Errors/Warnings) -->
+                                                    <StackPanel Margin="24,2,0,0" Spacing="3" IsVisible="{Binding HasMetadataDiagnostics}">
+                                                        <Border Background="#2d1c1c" BorderBrush="#ef4444" BorderThickness="1" CornerRadius="4" Padding="10">
+                                                            <StackPanel Spacing="4">
+                                                                <TextBlock Text="{Binding $parent[Window].DataContext.L[O3dDiagnostics]}" FontSize="11" FontWeight="Bold" Foreground="#f87171"/>
+                                                                <ItemsControl ItemsSource="{Binding MetadataDiagnostics}">
+                                                                    <ItemsControl.ItemTemplate>
+                                                                        <DataTemplate>
+                                                                            <TextBlock Text="{Binding Message}" FontSize="11" Foreground="#fca5a5" TextWrapping="Wrap" Margin="4,0,0,2"/>
+                                                                        </DataTemplate>
+                                                                    </ItemsControl.ItemTemplate>
+                                                                </ItemsControl>
+                                                            </StackPanel>
+                                                        </Border>
+                                                    </StackPanel>
+                                                </StackPanel>
                                             </Border>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>

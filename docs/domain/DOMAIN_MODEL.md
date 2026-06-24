@@ -24,12 +24,18 @@ Represents an individual discovered OMSI asset.
 
 ### OmsiModelReference
 
-Represents a reference to a 3D mesh model used by an asset, along with its resolution state on disk.
+Represents a reference to a 3D mesh model used by an asset, along with its resolution state on disk and optional O3D metadata.
 
 *   `MeshPath` (string): The filename/path of the mesh file as referenced in the `.sco` file.
 *   `ResolvedPath` (string): The absolute path where the mesh was resolved on the local filesystem.
 *   `Exists` (bool): Indicates if the mesh file exists on disk.
 *   `ResolutionStatus` (OmsiModelReferenceResolutionStatus): The status of the path resolution.
+*   `Metadata` (O3dMetadata?): Optional parsed O3D metadata statistics.
+*   `MetadataStatus` (O3dMetadataStatus): The outcome status of the metadata read.
+*   `MetadataDiagnostics` (IReadOnlyList<O3dDiagnostic>): Diagnostics/warnings produced during metadata parsing.
+*   `HasMetadata` (bool): Helper flag indicating if `Metadata` is not null.
+*   `HasNoMetadata` (bool): Helper flag indicating if `Metadata` is null.
+*   `HasMetadataDiagnostics` (bool): Helper flag indicating if there are warning/error diagnostics present.
 
 ### OmsiModelReferenceResolutionStatus (Enum)
 
@@ -105,4 +111,87 @@ Represents the metadata and resource references exported for a selected scenery 
 *   `Meshes` (IReadOnlyList<ExportManifestReference>): Collection of mesh references extracted for conversion.
 *   `Textures` (IReadOnlyList<ExportManifestReference>): Collection of texture references extracted for conversion.
 *   `Warnings` (IReadOnlyList<string>): Cumulative list of non-fatal warnings captured during building.
+
+## O3D Metadata Models
+
+### O3dFormatVersion (Enum)
+
+*   `Unknown = 0`: Default unrecognized format version.
+*   `Legacy = 1`: Legacy version of O3D format (Version < 3) utilizing short headers.
+*   `Version3 = 2`: Version 3 of O3D format utilizing long headers.
+*   `Version4 = 3`: Version 4 of O3D format utilizing long headers.
+
+### O3dMetadataStatus (Enum)
+
+*   `Unknown = 0`: Default unrecognized status.
+*   `Success = 1`: Metadata read successfully.
+*   `Unsupported = 2`: The version is unsupported.
+*   `Encrypted = 3`: The O3D file is encrypted and requires keys.
+*   `Invalid = 4`: The file headers are invalid/corrupt.
+*   `Failed = 5`: Structural failure or file access issue.
+
+### O3dTextureReference
+
+Represents a texture reference embedded in the model slots.
+
+*   `Path` (string): Embedded texture reference file name or path.
+
+### O3dMetadata
+
+Represents parsed header metadata statistics from an O3D file.
+
+*   `Version` (O3dFormatVersion): The O3D file format version.
+*   `IsEncrypted` (bool): Indicates if the model file is encrypted.
+*   `MeshCount` (int): Number of meshes/submeshes.
+*   `VertexCount` (int): Count of vertices.
+*   `TriangleCount` (int): Count of triangles/faces.
+*   `MaterialCount` (int): Count of materials defined.
+*   `TextureReferences` (IReadOnlyList<O3dTextureReference>): Embedded texture references.
+
+### O3dDiagnosticSeverity (Enum)
+
+*   `Unknown = 0`: Default unrecognized severity.
+*   `Info = 1`: Informational trace message.
+*   `Warning = 2`: Non-fatal warning indicating formatting or reference issues.
+*   `Error = 3`: Fatal parsing error.
+
+### O3dDiagnosticCode (Enum)
+
+*   `Unknown = 0`: Default unrecognized diagnostic code.
+*   `TruncatedStream = 1`: Unexpected end of stream.
+*   `UnsupportedVersion = 2`: Version is unsupported.
+*   `EncryptedFile = 3`: Model file encryption protection.
+*   `InvalidHeader = 4`: Invalid header formatting.
+*   `InvalidCount = 5`: Count statistics values are negative or invalid.
+*   `StringLengthExceeded = 6`: String length exceeds configured limit.
+*   `InvalidStringBounds = 7`: String length exceeds stream remainder size.
+*   `ReadFailed = 8`: Binary stream read error.
+*   `SafetyLimitExceeded = 9`: Allocation sizes exceed safe size thresholds.
+
+### O3dDiagnostic
+
+Represents a structured warning or error message generated during O3D metadata extraction.
+
+*   `Severity` (O3dDiagnosticSeverity): The severity level (Info, Warning, or Error).
+*   `Code` (O3dDiagnosticCode): The diagnostic code indicating the failure/warning classification.
+*   `Message` (string): Context message describing the error.
+*   `ByteOffset` (long?): Optional byte offset in the stream where the diagnostic occurred.
+*   `Context` (string?): Optional variable state or debug metadata.
+
+### O3dMetadataReadResult
+
+Represents the output details of an O3D metadata reading execution.
+
+*   `Metadata` (O3dMetadata?): Parsed O3D metadata (if successful).
+*   `Status` (O3dMetadataStatus): Final outcome status.
+*   `Diagnostics` (IReadOnlyList<O3dDiagnostic>): Cumulative list of structured parsing warnings, errors, or trace logs.
+
+## O3D Metadata Services
+
+### IO3dMetadataReader
+
+Defines the service contract for parsing O3D model file header metadata asynchronously.
+
+*   `ReadAsync(filePath, cancellationToken)`: Reads and parses version, encryption, and count metadata from the specified O3D file asynchronously, returning an `O3dMetadataReadResult`. Supports cooperative cancellation.
+
 

@@ -104,6 +104,12 @@ This document outlines the roadmap, priority groups, and status of OmsiStudio ta
     *   *Purpose*: Fixed Avalonia UI data binding refresh by adding missing `NotifyPropertyChangedFor` triggers, and refactored conversion tests to clean up temporary output files.
     *   *Area*: `OmsiStudio.App`, `OmsiStudio.Conversion.Tests`
 
+### OS-006 - O3D Metadata Pipeline
+*   **OS-006-FEATURE-001 - O3D Metadata Pipeline**
+    *   *Purpose*: Safely read `.o3d` files for header-level metadata only, including version, encrypted state, counts, and texture references.
+    *   *Area*: `OmsiStudio.Core`, `OmsiStudio.OmsiFormat`, `OmsiStudio.App`
+    *   *Exclusions*: No geometry/vertex/index buffer parsing, no 3D rendering or viewport, no OBJ/glTF conversion/export.
+
 ---
 
 ## 📋 Planned Backlog
@@ -120,4 +126,3 @@ This document outlines the roadmap, priority groups, and status of OmsiStudio ta
 
 ### P3 - Governance / Project Hygiene
 *(No pending tasks)*
-

@@ -467,4 +467,214 @@ Category A
             throw new UnauthorizedAccessException("Simulated enumeration error");
         }
     }
+
+    [Fact]
+    public async Task Scanner_ShouldPopulateMetadata_ForResolvedO3dModelReference()
+    {
+        // Arrange
+        var sceneryObjectsDir = Path.Combine(_testTempDir, "Sceneryobjects");
+        var objectDir = Path.Combine(sceneryObjectsDir, "TestObject");
+        Directory.CreateDirectory(objectDir);
+
+        var file1 = Path.Combine(objectDir, "object1.sco");
+        File.WriteAllText(file1, "[friendlyname]\nObj 1\n[mesh]\nmodel.o3d");
+
+        var meshFile = Path.Combine(objectDir, "model.o3d");
+        File.WriteAllText(meshFile, ""); // create empty mock mesh
+
+        var parser = new ScoFileParser();
+        var mockReader = new MockO3dMetadataReader();
+        var scanner = new OmsiAssetScanner(parser, new OmsiDirectoryScanner(), new OmsiModelReferenceResolver(), mockReader);
+
+        // Act
+        var result = await scanner.ScanAsync(_testTempDir);
+
+        // Assert
+        Assert.Single(result.DiscoveredAssets);
+        var asset = result.DiscoveredAssets[0];
+        Assert.Single(asset.ModelReferences);
+        
+        var modelRef = asset.ModelReferences[0];
+        Assert.True(modelRef.Exists);
+        Assert.Equal(OmsiModelReferenceResolutionStatus.Resolved, modelRef.ResolutionStatus);
+        Assert.NotNull(modelRef.Metadata);
+        Assert.Equal(O3dFormatVersion.Version3, modelRef.Metadata.Version);
+        Assert.Equal(1, mockReader.ReadCallCount);
+        Assert.Equal(meshFile, mockReader.ReadPaths[0]);
+    }
+
+    [Fact]
+    public async Task Scanner_ShouldAddWarnings_ForMetadataDiagnostics()
+    {
+        // Arrange
+        var sceneryObjectsDir = Path.Combine(_testTempDir, "Sceneryobjects");
+        var objectDir = Path.Combine(sceneryObjectsDir, "TestObjectWarn");
+        Directory.CreateDirectory(objectDir);
+
+        var file1 = Path.Combine(objectDir, "object1.sco");
+        File.WriteAllText(file1, "[friendlyname]\nObj 1\n[mesh]\nmodel.o3d");
+
+        var meshFile = Path.Combine(objectDir, "model.o3d");
+        File.WriteAllText(meshFile, "");
+
+        var parser = new ScoFileParser();
+        var mockReader = new MockO3dMetadataReader
+        {
+            ResultToReturn = new O3dMetadataReadResult
+            {
+                Status = O3dMetadataStatus.Invalid,
+                Diagnostics = new List<O3dDiagnostic>
+                {
+                    new() { Severity = O3dDiagnosticSeverity.Warning, Code = O3dDiagnosticCode.SafetyLimitExceeded, Message = "Safety limit hit" }
+                }
+            }
+        };
+        var scanner = new OmsiAssetScanner(parser, new OmsiDirectoryScanner(), new OmsiModelReferenceResolver(), mockReader);
+
+        // Act
+        var result = await scanner.ScanAsync(_testTempDir);
+
+        // Assert
+        Assert.Single(result.DiscoveredAssets);
+        var modelRef = result.DiscoveredAssets[0].ModelReferences[0];
+        Assert.Equal(O3dMetadataStatus.Invalid, modelRef.MetadataStatus);
+        Assert.Single(result.Warnings);
+        Assert.Contains("Model reference metadata warning/error in 'model.o3d': [SafetyLimitExceeded] Safety limit hit", result.Warnings[0]);
+    }
+
+    [Fact]
+    public async Task Scanner_ShouldSkipMetadataReader_ForMissingOrInvalidOrNonO3dReferences()
+    {
+        // Arrange
+        var sceneryObjectsDir = Path.Combine(_testTempDir, "Sceneryobjects");
+        var objectDir = Path.Combine(sceneryObjectsDir, "TestObjectSkip");
+        Directory.CreateDirectory(objectDir);
+
+        var file1 = Path.Combine(objectDir, "object1.sco");
+        File.WriteAllText(file1, @"
+[friendlyname]
+Obj 1
+[mesh]
+missing.o3d
+[mesh]
+non_o3d.txt
+[mesh]
+valid.o3d
+");
+        var validMeshFile = Path.Combine(objectDir, "valid.o3d");
+        File.WriteAllText(validMeshFile, "");
+        var txtFile = Path.Combine(objectDir, "non_o3d.txt");
+        File.WriteAllText(txtFile, "");
+
+        var parser = new ScoFileParser();
+        var mockReader = new MockO3dMetadataReader();
+        var scanner = new OmsiAssetScanner(parser, new OmsiDirectoryScanner(), new OmsiModelReferenceResolver(), mockReader);
+
+        // Act
+        var result = await scanner.ScanAsync(_testTempDir);
+
+        // Assert
+        Assert.Single(result.DiscoveredAssets);
+        var modelRefs = result.DiscoveredAssets[0].ModelReferences;
+        Assert.Equal(3, modelRefs.Count);
+
+        Assert.Null(modelRefs[0].Metadata); // missing.o3d
+        Assert.Null(modelRefs[1].Metadata); // non_o3d.txt (not .o3d)
+        Assert.NotNull(modelRefs[2].Metadata); // valid.o3d
+
+        Assert.Equal(1, mockReader.ReadCallCount);
+        Assert.Equal(validMeshFile, mockReader.ReadPaths[0]);
+    }
+
+    [Fact]
+    public async Task Scanner_ShouldContinue_WhenMetadataReadThrowsGenericException()
+    {
+        // Arrange
+        var sceneryObjectsDir = Path.Combine(_testTempDir, "Sceneryobjects");
+        var objectDir = Path.Combine(sceneryObjectsDir, "TestObjectExcept");
+        Directory.CreateDirectory(objectDir);
+
+        var file1 = Path.Combine(objectDir, "object1.sco");
+        File.WriteAllText(file1, "[friendlyname]\nObj 1\n[mesh]\nmodel.o3d");
+
+        var meshFile = Path.Combine(objectDir, "model.o3d");
+        File.WriteAllText(meshFile, "");
+
+        var parser = new ScoFileParser();
+        var mockReader = new MockO3dMetadataReader
+        {
+            ShouldThrowGenericException = true
+        };
+        var scanner = new OmsiAssetScanner(parser, new OmsiDirectoryScanner(), new OmsiModelReferenceResolver(), mockReader);
+
+        // Act
+        var result = await scanner.ScanAsync(_testTempDir);
+
+        // Assert
+        Assert.Single(result.DiscoveredAssets);
+        var modelRef = result.DiscoveredAssets[0].ModelReferences[0];
+        Assert.Equal(O3dMetadataStatus.Failed, modelRef.MetadataStatus);
+        Assert.Single(result.Warnings);
+        Assert.Contains("Failed to read metadata for 'model.o3d': Failed reading metadata", result.Warnings[0]);
+    }
+
+    [Fact]
+    public async Task Scanner_ShouldRespectCancellation_DuringMetadataReading()
+    {
+        // Arrange
+        var sceneryObjectsDir = Path.Combine(_testTempDir, "Sceneryobjects");
+        var objectDir = Path.Combine(sceneryObjectsDir, "TestObjectCancel");
+        Directory.CreateDirectory(objectDir);
+
+        var file1 = Path.Combine(objectDir, "object1.sco");
+        File.WriteAllText(file1, "[friendlyname]\nObj 1\n[mesh]\nmodel.o3d");
+
+        var meshFile = Path.Combine(objectDir, "model.o3d");
+        File.WriteAllText(meshFile, "");
+
+        var parser = new ScoFileParser();
+        var mockReader = new MockO3dMetadataReader
+        {
+            ShouldThrowCancellation = true
+        };
+        var scanner = new OmsiAssetScanner(parser, new OmsiDirectoryScanner(), new OmsiModelReferenceResolver(), mockReader);
+
+        // Act
+        var result = await scanner.ScanAsync(_testTempDir);
+
+        // Assert: Exits loop gracefully on cancellation and returns partial/empty result
+        Assert.NotNull(result);
+        Assert.Empty(result.Errors);
+    }
+
+    private class MockO3dMetadataReader : IO3dMetadataReader
+    {
+        public int ReadCallCount { get; private set; }
+        public List<string> ReadPaths { get; } = new();
+        public O3dMetadataReadResult ResultToReturn { get; set; } = new()
+        {
+            Status = O3dMetadataStatus.Success,
+            Metadata = new O3dMetadata { Version = O3dFormatVersion.Version3 }
+        };
+        public bool ShouldThrowCancellation { get; set; }
+        public bool ShouldThrowGenericException { get; set; }
+
+        public Task<O3dMetadataReadResult> ReadAsync(string filePath, CancellationToken cancellationToken = default)
+        {
+            ReadCallCount++;
+            ReadPaths.Add(filePath);
+
+            if (cancellationToken.IsCancellationRequested || ShouldThrowCancellation)
+            {
+                throw new OperationCanceledException(cancellationToken);
+            }
+
+            if (ShouldThrowGenericException)
+            {
+                throw new InvalidOperationException("Failed reading metadata");
+            }
+
+            return Task.FromResult(ResultToReturn);
+        }
+    }
 }

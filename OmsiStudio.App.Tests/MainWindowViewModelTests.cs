@@ -925,4 +925,256 @@ public class MainWindowViewModelTests
             catch {}
         }
     }
+
+    [Fact]
+    public void LocalizationService_ShouldHaveO3dMetadataKeysInBothLanguages()
+    {
+        // Arrange
+        var service = new LocalizationService();
+        var keys = new[]
+        {
+            "O3dMetadataTitle",
+            "O3dVersion",
+            "O3dEncrypted",
+            "O3dMeshCount",
+            "O3dVertexCount",
+            "O3dTriangleCount",
+            "O3dMaterialCount",
+            "O3dTextureReferences",
+            "O3dNoMetadata",
+            "O3dDiagnostics"
+        };
+
+        // 1. Verify Turkish (Default)
+        service.SetCulture("tr-TR");
+        foreach (var key in keys)
+        {
+            var value = service[key];
+            Assert.NotEqual(key, value);
+            Assert.False(string.IsNullOrWhiteSpace(value));
+        }
+
+        // 2. Verify English
+        service.SetCulture("en-US");
+        foreach (var key in keys)
+        {
+            var value = service[key];
+            Assert.NotEqual(key, value);
+            Assert.False(string.IsNullOrWhiteSpace(value));
+        }
+    }
+
+    [Fact]
+    public void MainWindowViewModel_SelectedAssetWithMetadata_PropertiesAreSafeForBinding()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var fakeSettings = new FakeAppSettingsService();
+        var fakeClipboard = new FakeClipboardService();
+        var fakeLauncher = new FakeFileLauncherService();
+        var localizationService = new LocalizationService();
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService);
+
+        var metadata = new O3dMetadata
+        {
+            Version = O3dFormatVersion.Version3,
+            IsEncrypted = false,
+            MeshCount = 2,
+            VertexCount = 100,
+            TriangleCount = 50,
+            MaterialCount = 1,
+            TextureReferences = new List<O3dTextureReference> { new() { Path = "texture.bmp" } }
+        };
+        var diagnostics = new List<O3dDiagnostic>
+        {
+            new() { Severity = O3dDiagnosticSeverity.Warning, Code = O3dDiagnosticCode.SafetyLimitExceeded, Message = "Safety warning" }
+        };
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved)
+        {
+            Metadata = metadata,
+            MetadataStatus = O3dMetadataStatus.Success,
+            MetadataDiagnostics = diagnostics
+        };
+
+        var asset = new OmsiAsset
+        {
+            DisplayName = "Test Asset",
+            SourceScoPath = "/path/to/asset.sco",
+            RelativePath = "TestAsset/asset.sco",
+            AssetType = OmsiAssetType.SceneryObject,
+            ModelReferences = new List<OmsiModelReference> { modelRef }
+        };
+
+        // Act
+        viewModel.SelectedAsset = asset;
+
+        // Assert
+        Assert.NotNull(viewModel.SelectedAsset);
+        Assert.True(viewModel.HasSelectedAsset);
+        var refInVm = viewModel.SelectedAsset.ModelReferences[0];
+        Assert.True(refInVm.HasMetadata);
+        Assert.False(refInVm.HasNoMetadata);
+        Assert.True(refInVm.HasMetadataDiagnostics);
+        Assert.Equal(O3dFormatVersion.Version3, refInVm.Metadata?.Version);
+        Assert.Equal("texture.bmp", refInVm.Metadata?.TextureReferences?[0].Path);
+        Assert.Equal("Safety warning", refInVm.MetadataDiagnostics[0].Message);
+    }
+
+    [Fact]
+    public async Task MainWindowViewModel_ScanResultWithO3dMetadata_PopulatesAndPreservesExpectedData()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService { PresetPath = "/path/to/omsi" };
+        var fakeSettings = new FakeAppSettingsService();
+        var fakeClipboard = new FakeClipboardService();
+        var fakeLauncher = new FakeFileLauncherService();
+        var localizationService = new LocalizationService();
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService);
+
+        var metadata = new O3dMetadata
+        {
+            Version = O3dFormatVersion.Version3,
+            IsEncrypted = false,
+            MeshCount = 2,
+            VertexCount = 100,
+            TriangleCount = 50,
+            MaterialCount = 1
+        };
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved)
+        {
+            Metadata = metadata,
+            MetadataStatus = O3dMetadataStatus.Success
+        };
+
+        var asset = new OmsiAsset
+        {
+            DisplayName = "Metadata Asset",
+            SourceScoPath = "/path/to/asset.sco",
+            RelativePath = "Folder/asset.sco",
+            AssetType = OmsiAssetType.SceneryObject,
+            ModelReferences = new List<OmsiModelReference> { modelRef }
+        };
+
+        fakeScanner.AssetsToReturn.Add(asset);
+        fakeScanner.WarningsToReturn.Add("[model.o3d] Model reference metadata warning/error: safety limit hit");
+
+        // Act
+        await viewModel.SelectFolderCommand.ExecuteAsync(null);
+
+        // Assert: assets populated
+        Assert.Single(viewModel.Assets);
+        Assert.Equal("Metadata Asset", viewModel.Assets[0].DisplayName);
+
+        // Act: selection
+        viewModel.SelectedAsset = viewModel.Assets[0];
+
+        // Assert: preserves metadata properties on SelectedAsset
+        Assert.NotNull(viewModel.SelectedAsset);
+        var refInVm = viewModel.SelectedAsset.ModelReferences[0];
+        Assert.True(refInVm.HasMetadata);
+        Assert.False(refInVm.HasNoMetadata);
+        Assert.Equal(O3dFormatVersion.Version3, refInVm.Metadata?.Version);
+        Assert.Equal(O3dMetadataStatus.Success, refInVm.MetadataStatus);
+
+        // Assert: scan warnings surfaced in ScanWarnings
+        Assert.Single(viewModel.ScanWarnings);
+        Assert.Contains("safety limit hit", viewModel.ScanWarnings[0]);
+        Assert.Equal(1, viewModel.WarningCount);
+        Assert.True(viewModel.HasScanWarnings);
+    }
+
+    [Fact]
+    public async Task MainWindowViewModel_ScanResultWithMissingMetadata_IsSafeAndHasNoMetadata()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService { PresetPath = "/path/to/omsi" };
+        var fakeSettings = new FakeAppSettingsService();
+        var fakeClipboard = new FakeClipboardService();
+        var fakeLauncher = new FakeFileLauncherService();
+        var localizationService = new LocalizationService();
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService);
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", false, OmsiModelReferenceResolutionStatus.Missing)
+        {
+            Metadata = null,
+            MetadataStatus = O3dMetadataStatus.Unknown
+        };
+
+        var asset = new OmsiAsset
+        {
+            DisplayName = "Missing Asset",
+            SourceScoPath = "/path/to/asset.sco",
+            RelativePath = "Folder/asset.sco",
+            AssetType = OmsiAssetType.SceneryObject,
+            ModelReferences = new List<OmsiModelReference> { modelRef }
+        };
+
+        fakeScanner.AssetsToReturn.Add(asset);
+
+        // Act
+        await viewModel.SelectFolderCommand.ExecuteAsync(null);
+        viewModel.SelectedAsset = viewModel.Assets[0];
+
+        // Assert
+        Assert.NotNull(viewModel.SelectedAsset);
+        var refInVm = viewModel.SelectedAsset.ModelReferences[0];
+        Assert.False(refInVm.HasMetadata);
+        Assert.True(refInVm.HasNoMetadata);
+        Assert.Null(refInVm.Metadata);
+        Assert.Equal(O3dMetadataStatus.Unknown, refInVm.MetadataStatus);
+    }
+
+    [Fact]
+    public async Task MainWindowViewModel_ScanResultWithDiagnosticsButNoMetadata_ExposesDiagnosticsSafely()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService { PresetPath = "/path/to/omsi" };
+        var fakeSettings = new FakeAppSettingsService();
+        var fakeClipboard = new FakeClipboardService();
+        var fakeLauncher = new FakeFileLauncherService();
+        var localizationService = new LocalizationService();
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService);
+
+        var diagnostics = new List<O3dDiagnostic>
+        {
+            new() { Severity = O3dDiagnosticSeverity.Error, Code = O3dDiagnosticCode.TruncatedStream, Message = "Truncated file" }
+        };
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved)
+        {
+            Metadata = null,
+            MetadataStatus = O3dMetadataStatus.Invalid,
+            MetadataDiagnostics = diagnostics
+        };
+
+        var asset = new OmsiAsset
+        {
+            DisplayName = "Diag Asset",
+            SourceScoPath = "/path/to/asset.sco",
+            RelativePath = "Folder/asset.sco",
+            AssetType = OmsiAssetType.SceneryObject,
+            ModelReferences = new List<OmsiModelReference> { modelRef }
+        };
+
+        fakeScanner.AssetsToReturn.Add(asset);
+
+        // Act
+        await viewModel.SelectFolderCommand.ExecuteAsync(null);
+        viewModel.SelectedAsset = viewModel.Assets[0];
+
+        // Assert
+        Assert.NotNull(viewModel.SelectedAsset);
+        var refInVm = viewModel.SelectedAsset.ModelReferences[0];
+        Assert.False(refInVm.HasMetadata);
+        Assert.True(refInVm.HasNoMetadata);
+        Assert.True(refInVm.HasMetadataDiagnostics);
+        Assert.Single(refInVm.MetadataDiagnostics);
+        Assert.Equal("Truncated file", refInVm.MetadataDiagnostics[0].Message);
+    }
 }
