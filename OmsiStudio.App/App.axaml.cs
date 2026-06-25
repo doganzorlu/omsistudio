@@ -37,7 +37,8 @@ public partial class App : Application
                 new AvaloniaClipboardService(),
                 new ProcessFileLauncherService(),
                 new LocalizationService(),
-                uiDispatcher: uiDispatcher);
+                uiDispatcher: uiDispatcher,
+                scanCacheService: new JsonScanCacheService());
             _ = viewModel.LoadSettingsAsync();
 
             desktop.MainWindow = new MainWindow

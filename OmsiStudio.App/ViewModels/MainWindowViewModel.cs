@@ -253,7 +253,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _localizationService = new LocalizationService();
         _conversionService = new AssetConversionService();
         _uiDispatcher = new InlineUiDispatcher();
-        _scanCacheService = (IsTestMode || IsTestEnvironment()) ? new NullScanCacheService() : new JsonScanCacheService();
+        _scanCacheService = new JsonScanCacheService();
 
         _localizationService.CultureChanged += (s, e) => OnPropertyChanged(string.Empty);
     }
@@ -271,8 +271,9 @@ public partial class MainWindowViewModel : ViewModelBase
     public MainWindowViewModel(
         IOmsiAssetScanner scanner, 
         IFolderPickerService folderPickerService, 
-        IAppSettingsService appSettingsService)
-        : this(scanner, folderPickerService, appSettingsService, new AvaloniaClipboardService(), new ProcessFileLauncherService(), new LocalizationService())
+        IAppSettingsService appSettingsService,
+        IScanCacheService? scanCacheService = null)
+        : this(scanner, folderPickerService, appSettingsService, new AvaloniaClipboardService(), new ProcessFileLauncherService(), new LocalizationService(), scanCacheService: scanCacheService)
     {
     }
 
@@ -281,8 +282,9 @@ public partial class MainWindowViewModel : ViewModelBase
         IFolderPickerService folderPickerService, 
         IAppSettingsService appSettingsService,
         IClipboardService clipboardService,
-        IFileLauncherService fileLauncherService)
-        : this(scanner, folderPickerService, appSettingsService, clipboardService, fileLauncherService, new LocalizationService())
+        IFileLauncherService fileLauncherService,
+        IScanCacheService? scanCacheService = null)
+        : this(scanner, folderPickerService, appSettingsService, clipboardService, fileLauncherService, new LocalizationService(), scanCacheService: scanCacheService)
     {
     }
 
@@ -305,7 +307,7 @@ public partial class MainWindowViewModel : ViewModelBase
         _localizationService = localizationService ?? throw new ArgumentNullException(nameof(localizationService));
         _conversionService = conversionService ?? new AssetConversionService();
         _uiDispatcher = uiDispatcher ?? new InlineUiDispatcher();
-        _scanCacheService = scanCacheService ?? ((IsTestMode || IsTestEnvironment()) ? new NullScanCacheService() : new JsonScanCacheService());
+        _scanCacheService = scanCacheService ?? new JsonScanCacheService();
 
         _localizationService.CultureChanged += (s, e) => OnPropertyChanged(string.Empty);
     }
@@ -500,11 +502,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            var progress = new Progress<OmsiScanProgress>(p =>
+            var progress = new SynchronousProgress<OmsiScanProgress>(async p =>
             {
                 if (token.IsCancellationRequested) return;
 
-                _ = RunOnUiAsync(() =>
+                await RunOnUiAsync(() =>
                 {
                     lock (_scanLock)
                     {
@@ -608,14 +610,18 @@ public partial class MainWindowViewModel : ViewModelBase
                     {
                         ScanProgressText = string.Format(_localizationService["ScanProgressCompletedFormat"], _allAssets.Count);
 
-                        cacheEntry = new OmsiScanCacheEntry
+                        bool hasFatalError = result.Errors.Any(e => e != null && e.Contains("fatal error", StringComparison.OrdinalIgnoreCase));
+                        if (!hasFatalError)
                         {
-                            RootDirectory = directoryPath,
-                            CachedAtUtc = DateTime.UtcNow,
-                            Assets = _allAssets.ToList(),
-                            Warnings = ScanWarnings.ToList(),
-                            Errors = ScanErrors.ToList()
-                        };
+                            cacheEntry = new OmsiScanCacheEntry
+                            {
+                                RootDirectory = directoryPath,
+                                CachedAtUtc = DateTime.UtcNow,
+                                Assets = result.DiscoveredAssets.ToList(),
+                                Warnings = result.Warnings.ToList(),
+                                Errors = result.Errors.ToList()
+                            };
+                        }
                     }
 
                     if (_allAssets.Count == 0)
@@ -1023,28 +1029,4 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         return string.Compare(GetSortKey(a), GetSortKey(b), StringComparison.OrdinalIgnoreCase);
     }
-
-    public static bool IsTestMode { get; set; }
-
-    private static bool IsTestEnvironment()
-    {
-        try
-        {
-            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
-            foreach (var assembly in assemblies)
-            {
-                var name = assembly.GetName().Name;
-                if (name != null && (name.Contains("test", StringComparison.OrdinalIgnoreCase) || name.Contains("xunit", StringComparison.OrdinalIgnoreCase)))
-                {
-                    return true;
-                }
-            }
-        }
-        catch
-        {
-            // Fallback
-        }
-        return false;
-    }
 }
-

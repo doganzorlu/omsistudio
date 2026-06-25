@@ -15,10 +15,6 @@ namespace OmsiStudio.App.Tests;
 
 public class MainWindowViewModelTests
 {
-    static MainWindowViewModelTests()
-    {
-        MainWindowViewModel.IsTestMode = true;
-    }
     private class FakeFolderPickerService : IFolderPickerService
     {
         public string? PresetPath { get; set; }
@@ -243,7 +239,7 @@ public class MainWindowViewModelTests
             AssetType = OmsiAssetType.SceneryObject
         });
 
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, new FakeAppSettingsService());
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, new FakeAppSettingsService(), scanCacheService: new NullScanCacheService());
 
         // Act
         await viewModel.SelectFolderCommand.ExecuteAsync(null);
@@ -270,7 +266,7 @@ public class MainWindowViewModelTests
 
         var localizationService = new LocalizationService();
         localizationService.SetCulture("en-US");
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, new FakeAppSettingsService(), new FakeClipboardService(), new FakeFileLauncherService(), localizationService);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, new FakeAppSettingsService(), new FakeClipboardService(), new FakeFileLauncherService(), localizationService, scanCacheService: new NullScanCacheService());
 
         // Act
         await viewModel.SelectFolderCommand.ExecuteAsync(null);
@@ -303,7 +299,7 @@ public class MainWindowViewModelTests
         fakeScanner.AssetsToReturn.Add(asset1);
         fakeScanner.AssetsToReturn.Add(asset2);
 
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, new FakeAppSettingsService());
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, new FakeAppSettingsService(), scanCacheService: new NullScanCacheService());
         await viewModel.SelectFolderCommand.ExecuteAsync(null);
 
         // Verify initial state
@@ -393,7 +389,7 @@ public class MainWindowViewModelTests
 
         var localizationService = new LocalizationService();
         localizationService.SetCulture("en-US");
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, new FakeAppSettingsService(), new FakeClipboardService(), new FakeFileLauncherService(), localizationService);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, new FakeAppSettingsService(), new FakeClipboardService(), new FakeFileLauncherService(), localizationService, scanCacheService: new NullScanCacheService());
         await viewModel.SelectFolderCommand.ExecuteAsync(null);
 
         // 1. Initial State (No search active)
@@ -462,7 +458,7 @@ public class MainWindowViewModelTests
         fakeScanner.WarningsToReturn.Add("A test warning");
         fakeScanner.ErrorsToReturn.Add("A test error");
 
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, new FakeAppSettingsService());
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, new FakeAppSettingsService(), scanCacheService: new NullScanCacheService());
 
         // Act
         await viewModel.SelectFolderCommand.ExecuteAsync(null);
@@ -509,7 +505,7 @@ public class MainWindowViewModelTests
         fakeScanner.AssetsToReturn.Add(subFolderAsset);
         fakeScanner.AssetsToReturn.Add(anotherSubFolderAsset);
 
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, new FakeAppSettingsService());
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, new FakeAppSettingsService(), scanCacheService: new NullScanCacheService());
         await viewModel.SelectFolderCommand.ExecuteAsync(null);
 
         // Debug assertions
@@ -576,7 +572,7 @@ public class MainWindowViewModelTests
         var fakeScanner = new FakeAssetScanner();
         var fakeFolderPicker = new FakeFolderPickerService();
         var fakeSettings = new FakeAppSettingsService { PresetRoot = "/saved/path" };
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, scanCacheService: new NullScanCacheService());
 
         // Act
         await viewModel.LoadSettingsAsync();
@@ -592,7 +588,7 @@ public class MainWindowViewModelTests
         var fakeScanner = new FakeAssetScanner();
         var fakeFolderPicker = new FakeFolderPickerService();
         var fakeSettings = new FakeAppSettingsService { PresetRoot = null };
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, scanCacheService: new NullScanCacheService());
 
         // Act
         await viewModel.LoadSettingsAsync();
@@ -608,7 +604,7 @@ public class MainWindowViewModelTests
         var fakeScanner = new FakeAssetScanner();
         var fakeFolderPicker = new FakeFolderPickerService { PresetPath = "/user/selected/path" };
         var fakeSettings = new FakeAppSettingsService();
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, scanCacheService: new NullScanCacheService());
 
         // Act
         await viewModel.SelectFolderCommand.ExecuteAsync(null);
@@ -633,7 +629,7 @@ public class MainWindowViewModelTests
         {
             ExceptionToThrowOnSave = new IOException("Disk failure")
         };
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, scanCacheService: new NullScanCacheService());
 
         // Act
         await viewModel.SelectFolderCommand.ExecuteAsync(null);
@@ -664,7 +660,7 @@ public class MainWindowViewModelTests
 
         var localizationService = new LocalizationService();
         localizationService.SetCulture("en-US");
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService, scanCacheService: new NullScanCacheService());
         await viewModel.SelectFolderCommand.ExecuteAsync(null);
 
         // 1. Commands when SelectedAsset is null (should no-op safely)
@@ -752,7 +748,7 @@ public class MainWindowViewModelTests
         var fakeLauncher = new FakeFileLauncherService();
         var localizationService = new LocalizationService();
 
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService, scanCacheService: new NullScanCacheService());
 
         // 1. Initial default culture in VM
         Assert.Equal("tr-TR", localizationService.CurrentCulture);
@@ -894,7 +890,7 @@ public class MainWindowViewModelTests
         // Arrange
         var cancellingScanner = new CancellingAssetScanner();
         var fakeFolderPicker = new FakeFolderPickerService { PresetPath = "/path/to/omsi" };
-        var viewModel = new MainWindowViewModel(cancellingScanner, fakeFolderPicker, new FakeAppSettingsService());
+        var viewModel = new MainWindowViewModel(cancellingScanner, fakeFolderPicker, new FakeAppSettingsService(), scanCacheService: new NullScanCacheService());
 
         cancellingScanner.OnProgressReported = () =>
         {
@@ -929,7 +925,7 @@ public class MainWindowViewModelTests
         var fakeScanner = new FakeAssetScanner();
         fakeScanner.AssetsToReturn.Add(new OmsiAsset { DisplayName = "Asset 1", RelativePath = "folder/asset1.sco" });
         var fakeFolderPicker = new FakeFolderPickerService { PresetPath = "/path/to/omsi" };
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, new FakeAppSettingsService());
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, new FakeAppSettingsService(), scanCacheService: new NullScanCacheService());
 
         var oldContext = SynchronizationContext.Current;
         try
@@ -1049,7 +1045,7 @@ public class MainWindowViewModelTests
         var fakeClipboard = new FakeClipboardService();
         var fakeLauncher = new FakeFileLauncherService();
         var localizationService = new LocalizationService();
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService, scanCacheService: new NullScanCacheService());
 
         var metadata = new O3dMetadata
         {
@@ -1107,7 +1103,7 @@ public class MainWindowViewModelTests
         var fakeClipboard = new FakeClipboardService();
         var fakeLauncher = new FakeFileLauncherService();
         var localizationService = new LocalizationService();
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService, scanCacheService: new NullScanCacheService());
 
         var metadata = new O3dMetadata
         {
@@ -1172,7 +1168,7 @@ public class MainWindowViewModelTests
         var fakeClipboard = new FakeClipboardService();
         var fakeLauncher = new FakeFileLauncherService();
         var localizationService = new LocalizationService();
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService, scanCacheService: new NullScanCacheService());
 
         var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", false, OmsiModelReferenceResolutionStatus.Missing)
         {
@@ -1214,7 +1210,7 @@ public class MainWindowViewModelTests
         var fakeClipboard = new FakeClipboardService();
         var fakeLauncher = new FakeFileLauncherService();
         var localizationService = new LocalizationService();
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, fakeSettings, fakeClipboard, fakeLauncher, localizationService, scanCacheService: new NullScanCacheService());
 
         var diagnostics = new List<O3dDiagnostic>
         {
@@ -1327,7 +1323,7 @@ public class MainWindowViewModelTests
         delayedScanner.AssetsToReturn.Add(asset1);
         delayedScanner.AssetsToReturn.Add(asset2);
 
-        var viewModel = new MainWindowViewModel(delayedScanner, fakeFolderPicker, new FakeAppSettingsService());
+        var viewModel = new MainWindowViewModel(delayedScanner, fakeFolderPicker, new FakeAppSettingsService(), scanCacheService: new NullScanCacheService());
 
         // Act
         var scanTask = viewModel.StartScanAsync("/path/to/omsi");
@@ -1374,7 +1370,7 @@ public class MainWindowViewModelTests
         delayedScanner.AssetsToReturn.Add(asset1);
         delayedScanner.AssetsToReturn.Add(asset2);
 
-        var viewModel = new MainWindowViewModel(delayedScanner, fakeFolderPicker, new FakeAppSettingsService());
+        var viewModel = new MainWindowViewModel(delayedScanner, fakeFolderPicker, new FakeAppSettingsService(), scanCacheService: new NullScanCacheService());
 
         // Act
         var scanTask = viewModel.StartScanAsync("/path/to/omsi");
@@ -1421,7 +1417,7 @@ public class MainWindowViewModelTests
         delayedScanner.AssetsToReturn.Add(asset1);
         delayedScanner.AssetsToReturn.Add(asset2);
 
-        var viewModel = new MainWindowViewModel(delayedScanner, fakeFolderPicker, new FakeAppSettingsService());
+        var viewModel = new MainWindowViewModel(delayedScanner, fakeFolderPicker, new FakeAppSettingsService(), scanCacheService: new NullScanCacheService());
 
         // Act
         var scanTask = viewModel.StartScanAsync("/path/to/omsi");
@@ -1481,7 +1477,7 @@ public class MainWindowViewModelTests
             new FakeClipboardService(),
             new FakeFileLauncherService(),
             new LocalizationService(),
-            uiDispatcher: dispatcher);
+            uiDispatcher: dispatcher, scanCacheService: new NullScanCacheService());
 
         // Act
         await viewModel.StartScanAsync("/path/to/omsi");
@@ -1500,7 +1496,7 @@ public class MainWindowViewModelTests
         var fakeScanner = new FakeAssetScanner();
         var fakeFolderPicker = new FakeFolderPickerService();
         var appSettings = new FakeAppSettingsService();
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, appSettings);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, appSettings, scanCacheService: new NullScanCacheService());
 
         var asset = new OmsiAsset
         {
@@ -1535,7 +1531,7 @@ public class MainWindowViewModelTests
         var fakeScanner = new FakeAssetScanner();
         var fakeFolderPicker = new FakeFolderPickerService();
         var appSettings = new FakeAppSettingsService();
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, appSettings);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, appSettings, scanCacheService: new NullScanCacheService());
 
         var asset = new OmsiAsset
         {
@@ -1584,7 +1580,7 @@ public class MainWindowViewModelTests
         var fakeScanner = new FakeAssetScanner();
         var fakeFolderPicker = new FakeFolderPickerService();
         var appSettings = new FakeAppSettingsService();
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, appSettings);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, appSettings, scanCacheService: new NullScanCacheService());
 
         var asset = new OmsiAsset
         {
@@ -1625,7 +1621,7 @@ public class MainWindowViewModelTests
         var fakeScanner = new FakeAssetScanner();
         var fakeFolderPicker = new FakeFolderPickerService();
         var appSettings = new FakeAppSettingsService();
-        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, appSettings);
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, appSettings, scanCacheService: new NullScanCacheService());
 
         var asset1 = new OmsiAsset
         {
@@ -1893,18 +1889,5 @@ public class MainWindowViewModelTests
         // Act & Assert 2: SelectFolderCommand shouldn't crash on cache read/write errors
         var selectException = await Record.ExceptionAsync(() => viewModel.SelectFolderCommand.ExecuteAsync(null));
         Assert.Null(selectException);
-    }
-
-    [Fact]
-    public void DebugAssemblies()
-    {
-        var assemblies = AppDomain.CurrentDomain.GetAssemblies();
-        var names = new List<string>();
-        foreach (var assembly in assemblies)
-        {
-            names.Add(assembly.GetName().Name ?? string.Empty);
-        }
-        var matches = names.FindAll(n => n.Contains("test", StringComparison.OrdinalIgnoreCase));
-        Assert.NotEmpty(matches);
     }
 }

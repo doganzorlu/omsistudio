@@ -14,10 +14,6 @@ namespace OmsiStudio.App.Tests;
 
 public class MainWindowViewModelExportTests
 {
-    static MainWindowViewModelExportTests()
-    {
-        MainWindowViewModel.IsTestMode = true;
-    }
     private class FakeFolderPickerService : IFolderPickerService
     {
         public string? PresetPath { get; set; }
@@ -123,7 +119,8 @@ public class MainWindowViewModelExportTests
             new FakeClipboardService(),
             new FakeFileLauncherService(),
             new FakeLocalizationService(),
-            conversionService);
+            conversionService,
+            scanCacheService: new NullScanCacheService());
 
         viewModel.SelectedAsset = null;
 
@@ -151,7 +148,8 @@ public class MainWindowViewModelExportTests
             new FakeClipboardService(),
             new FakeFileLauncherService(),
             new FakeLocalizationService(),
-            conversionService);
+            conversionService,
+            scanCacheService: new NullScanCacheService());
 
         viewModel.SelectedAsset = new OmsiAsset { DisplayName = "Test Asset", SourceScoPath = "/path/test.sco" };
 
@@ -186,7 +184,8 @@ public class MainWindowViewModelExportTests
             new FakeClipboardService(),
             new FakeFileLauncherService(),
             new FakeLocalizationService(),
-            conversionService);
+            conversionService,
+            scanCacheService: new NullScanCacheService());
 
         viewModel.SelectedAsset = new OmsiAsset { DisplayName = "Test Asset", SourceScoPath = "/path/test.sco" };
 
@@ -229,7 +228,8 @@ public class MainWindowViewModelExportTests
             new FakeClipboardService(),
             new FakeFileLauncherService(),
             new FakeLocalizationService(),
-            conversionService);
+            conversionService,
+            scanCacheService: new NullScanCacheService());
 
         viewModel.SelectedAsset = new OmsiAsset { DisplayName = "Test Asset", SourceScoPath = "/path/test.sco" };
 
@@ -259,7 +259,8 @@ public class MainWindowViewModelExportTests
             new FakeClipboardService(),
             new FakeFileLauncherService(),
             new FakeLocalizationService(),
-            conversionService);
+            conversionService,
+            scanCacheService: new NullScanCacheService());
 
         viewModel.SelectedAsset = new OmsiAsset { DisplayName = "Test Asset", SourceScoPath = "/path/test.sco" };
 
@@ -287,7 +288,8 @@ public class MainWindowViewModelExportTests
             new FakeClipboardService(),
             new FakeFileLauncherService(),
             new FakeLocalizationService(),
-            conversionService);
+            conversionService,
+            scanCacheService: new NullScanCacheService());
 
         viewModel.SelectedAsset = new OmsiAsset { DisplayName = "Test Asset", SourceScoPath = "/path/test.sco" };
 
@@ -313,7 +315,7 @@ public class MainWindowViewModelExportTests
             new FakeClipboardService(),
             new FakeFileLauncherService(),
             new FakeLocalizationService(),
-            new FakeAssetConversionService());
+            new FakeAssetConversionService(), scanCacheService: new NullScanCacheService());
 
         viewModel.ExportSuccessMessage = "Success message";
         viewModel.ExportErrorMessage = "Error message";
@@ -338,7 +340,7 @@ public class MainWindowViewModelExportTests
             new FakeClipboardService(),
             new FakeFileLauncherService(),
             new FakeLocalizationService(),
-            new FakeAssetConversionService());
+            new FakeAssetConversionService(), scanCacheService: new NullScanCacheService());
 
         var triggeredProperties = new List<string>();
         viewModel.PropertyChanged += (s, e) => { if (e.PropertyName != null) triggeredProperties.Add(e.PropertyName); };
@@ -363,7 +365,7 @@ public class MainWindowViewModelExportTests
             new FakeClipboardService(),
             new FakeFileLauncherService(),
             new FakeLocalizationService(),
-            new FakeAssetConversionService());
+            new FakeAssetConversionService(), scanCacheService: new NullScanCacheService());
 
         var triggeredProperties = new List<string>();
         viewModel.PropertyChanged += (s, e) => { if (e.PropertyName != null) triggeredProperties.Add(e.PropertyName); };
