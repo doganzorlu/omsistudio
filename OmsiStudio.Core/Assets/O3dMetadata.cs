@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace OmsiStudio.Core.Assets;
 
@@ -11,6 +12,18 @@ public sealed record O3dMetadata
     /// Gets the format version of the O3D file.
     /// </summary>
     public O3dFormatVersion Version { get; init; } = O3dFormatVersion.Unknown;
+
+    /// <summary>
+    /// Gets the raw numeric O3D version read from the file header, or 0 when it is unknown.
+    /// </summary>
+    public int RawVersion { get; init; }
+
+    /// <summary>
+    /// Gets a UI-friendly version string that preserves real O3D numeric versions.
+    /// </summary>
+    public string DisplayVersion => RawVersion > 0
+        ? RawVersion.ToString(CultureInfo.InvariantCulture)
+        : Version.ToString();
 
     /// <summary>
     /// Gets a value indicating whether the model file is encrypted.

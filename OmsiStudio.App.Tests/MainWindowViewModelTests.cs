@@ -15,6 +15,10 @@ namespace OmsiStudio.App.Tests;
 
 public class MainWindowViewModelTests
 {
+    static MainWindowViewModelTests()
+    {
+        MainWindowViewModel.IsTestMode = true;
+    }
     private class FakeFolderPickerService : IFolderPickerService
     {
         public string? PresetPath { get; set; }
@@ -67,12 +71,33 @@ public class MainWindowViewModelTests
 
             if (progress != null)
             {
-                progress.Report(new OmsiScanProgress
+                for (int i = 0; i < AssetsToReturn.Count; i++)
                 {
-                    DiscoveredFileCount = AssetsToReturn.Count,
-                    ParsedAssetCount = AssetsToReturn.Count,
-                    CurrentFilePath = AssetsToReturn.LastOrDefault()?.RelativePath ?? "fake.sco"
-                });
+                    var asset = AssetsToReturn[i];
+                    progress.Report(new OmsiScanProgress
+                    {
+                        DiscoveredFileCount = i + 1,
+                        ParsedAssetCount = i + 1,
+                        CurrentFilePath = asset.RelativePath,
+                        NewAsset = asset
+                    });
+                }
+
+                if (WarningsToReturn.Count > 0)
+                {
+                    progress.Report(new OmsiScanProgress
+                    {
+                        NewWarnings = WarningsToReturn
+                    });
+                }
+
+                if (ErrorsToReturn.Count > 0)
+                {
+                    progress.Report(new OmsiScanProgress
+                    {
+                        NewErrors = ErrorsToReturn
+                    });
+                }
             }
 
             return Task.FromResult(new OmsiScanResult
@@ -119,6 +144,56 @@ public class MainWindowViewModelTests
                 throw ExceptionToThrowOnSave;
             }
             SavedLanguage = cultureName;
+            return Task.CompletedTask;
+        }
+    }
+
+    private class RecordingUiDispatcher : IUiDispatcher
+    {
+        public int InvokeCount { get; private set; }
+        public bool HasAccess { get; set; }
+
+        public bool CheckAccess() => HasAccess;
+
+        public Task InvokeAsync(Action action)
+        {
+            InvokeCount++;
+            action();
+            return Task.CompletedTask;
+        }
+    }
+
+    private class FakeScanCacheService : IScanCacheService
+    {
+        public Dictionary<string, OmsiScanCacheEntry> Cache { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public int SaveCallsCount { get; private set; }
+        public int GetCallsCount { get; private set; }
+        public bool ShouldThrow { get; set; }
+
+        public Task<OmsiScanCacheEntry?> GetAsync(string rootDirectory, CancellationToken cancellationToken = default)
+        {
+            GetCallsCount++;
+            if (ShouldThrow)
+            {
+                throw new Exception("Cache read error");
+            }
+
+            if (Cache.TryGetValue(rootDirectory, out var entry))
+            {
+                return Task.FromResult<OmsiScanCacheEntry?>(entry);
+            }
+            return Task.FromResult<OmsiScanCacheEntry?>(null);
+        }
+
+        public Task SaveAsync(OmsiScanCacheEntry entry, CancellationToken cancellationToken = default)
+        {
+            SaveCallsCount++;
+            if (ShouldThrow)
+            {
+                throw new Exception("Cache write error");
+            }
+
+            Cache[entry.RootDirectory] = entry;
             return Task.CompletedTask;
         }
     }
@@ -839,7 +914,7 @@ public class MainWindowViewModelTests
             Assert.Null(viewModel.ErrorMessage);
             Assert.Single(viewModel.Assets);
             Assert.Equal("Partial Asset", viewModel.Assets[0].DisplayName);
-            Assert.Equal("Tarama kullanıcı tarafından iptal edildi.", viewModel.ScanProgressText);
+            Assert.Equal(viewModel.L["ScanProgressCancelled"], viewModel.ScanProgressText);
         }
         finally
         {
@@ -865,8 +940,8 @@ public class MainWindowViewModelTests
             var scanTask = viewModel.StartScanAsync("/path/to/omsi");
             await scanTask;
 
-            // Since it succeeded, progress text is cleared to string.Empty
-            Assert.Equal(string.Empty, viewModel.ScanProgressText);
+            // Since it succeeded, progress text displays the completed format
+            Assert.Equal(string.Format(viewModel.L["ScanProgressCompletedFormat"], viewModel.AssetCount), viewModel.ScanProgressText);
         }
         finally
         {
@@ -988,7 +1063,7 @@ public class MainWindowViewModelTests
         };
         var diagnostics = new List<O3dDiagnostic>
         {
-            new() { Severity = O3dDiagnosticSeverity.Warning, Code = O3dDiagnosticCode.SafetyLimitExceeded, Message = "Safety warning" }
+            new() { Severity = O3dDiagnosticSeverity.Error, Code = O3dDiagnosticCode.SafetyLimitExceeded, Message = "Safety warning" }
         };
 
         var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved)
@@ -1176,5 +1251,660 @@ public class MainWindowViewModelTests
         Assert.True(refInVm.HasMetadataDiagnostics);
         Assert.Single(refInVm.MetadataDiagnostics);
         Assert.Equal("Truncated file", refInVm.MetadataDiagnostics[0].Message);
+    }
+
+    private class DelayedAssetScanner : IOmsiAssetScanner
+    {
+        public TaskCompletionSource FirstAssetReportedTcs { get; } = new();
+        public TaskCompletionSource FinishScanTcs { get; } = new();
+        public List<OmsiAsset> AssetsToReturn { get; } = new();
+
+        public IAsyncEnumerable<OmsiAsset> ScanDirectoryAsync(string rootDirectory, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public Task<OmsiScanResult> ScanAsync(string rootDirectory, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
+        public async Task<OmsiScanResult> ScanAsync(string rootDirectory, IProgress<OmsiScanProgress>? progress, CancellationToken cancellationToken = default)
+        {
+            if (progress != null && AssetsToReturn.Count > 0)
+            {
+                var asset = AssetsToReturn[0];
+                progress.Report(new OmsiScanProgress
+                {
+                    DiscoveredFileCount = 1,
+                    ParsedAssetCount = 1,
+                    CurrentFilePath = asset.RelativePath,
+                    NewAsset = asset
+                });
+            }
+
+            // Signal that we reported the first asset
+            FirstAssetReportedTcs.SetResult();
+
+            // Wait until the test allows us to finish
+            await FinishScanTcs.Task;
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return new OmsiScanResult
+                {
+                    DiscoveredAssets = new List<OmsiAsset> { AssetsToReturn[0] },
+                    Warnings = new List<string>(),
+                    Errors = new List<string>()
+                };
+            }
+
+            if (progress != null && AssetsToReturn.Count > 1)
+            {
+                var asset = AssetsToReturn[1];
+                progress.Report(new OmsiScanProgress
+                {
+                    DiscoveredFileCount = 2,
+                    ParsedAssetCount = 2,
+                    CurrentFilePath = asset.RelativePath,
+                    NewAsset = asset
+                });
+            }
+
+            return new OmsiScanResult
+            {
+                DiscoveredAssets = AssetsToReturn,
+                Warnings = new List<string>(),
+                Errors = new List<string>()
+            };
+        }
+    }
+
+    [Fact]
+    public async Task StartScanAsync_ShouldPopulateAssetsIncrementally_BeforeScanCompletes()
+    {
+        // Arrange
+        var fakeFolderPicker = new FakeFolderPickerService { PresetPath = "/path/to/omsi" };
+        var delayedScanner = new DelayedAssetScanner();
+        var asset1 = new OmsiAsset { DisplayName = "Asset 1", RelativePath = "Folder/a1.sco" };
+        var asset2 = new OmsiAsset { DisplayName = "Asset 2", RelativePath = "Folder/a2.sco" };
+        delayedScanner.AssetsToReturn.Add(asset1);
+        delayedScanner.AssetsToReturn.Add(asset2);
+
+        var viewModel = new MainWindowViewModel(delayedScanner, fakeFolderPicker, new FakeAppSettingsService());
+
+        // Act
+        var scanTask = viewModel.StartScanAsync("/path/to/omsi");
+
+        // Wait until the first asset is reported by the background scanner
+        await delayedScanner.FirstAssetReportedTcs.Task;
+
+        // Give a small delay/yield for the progress callback to process
+        for (int i = 0; i < 50; i++)
+        {
+            if (viewModel.Assets.Count > 0) break;
+            await Task.Delay(10);
+        }
+
+        // Assert: the first asset is already in the UI collections even though the scan is not complete
+        Assert.Single(viewModel.Assets);
+        Assert.Equal("Asset 1", viewModel.Assets[0].DisplayName);
+        Assert.True(viewModel.IsScanning);
+
+        // Act: finish the scan
+        delayedScanner.FinishScanTcs.SetResult();
+        await scanTask;
+
+        // Give a small delay/yield for the second asset progress callback to process
+        for (int i = 0; i < 50; i++)
+        {
+            if (viewModel.Assets.Count > 1) break;
+            await Task.Delay(10);
+        }
+
+        // Assert: both assets are present after scan completion
+        Assert.Equal(2, viewModel.Assets.Count);
+        Assert.False(viewModel.IsScanning);
+    }
+
+    [Fact]
+    public async Task StartScanAsync_ShouldPreservePartialResults_OnCancellation()
+    {
+        // Arrange
+        var fakeFolderPicker = new FakeFolderPickerService { PresetPath = "/path/to/omsi" };
+        var delayedScanner = new DelayedAssetScanner();
+        var asset1 = new OmsiAsset { DisplayName = "Asset 1", RelativePath = "Folder/a1.sco" };
+        var asset2 = new OmsiAsset { DisplayName = "Asset 2", RelativePath = "Folder/a2.sco" };
+        delayedScanner.AssetsToReturn.Add(asset1);
+        delayedScanner.AssetsToReturn.Add(asset2);
+
+        var viewModel = new MainWindowViewModel(delayedScanner, fakeFolderPicker, new FakeAppSettingsService());
+
+        // Act
+        var scanTask = viewModel.StartScanAsync("/path/to/omsi");
+
+        // Wait until first asset is reported
+        await delayedScanner.FirstAssetReportedTcs.Task;
+
+        for (int i = 0; i < 50; i++)
+        {
+            if (viewModel.Assets.Count > 0) break;
+            await Task.Delay(10);
+        }
+
+        // Cancel the scan using the ViewModel's CancelScanCommand
+        viewModel.CancelScanCommand.Execute(null);
+
+        // Finish delayed scan
+        delayedScanner.FinishScanTcs.SetResult();
+        try
+        {
+            await scanTask;
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected
+        }
+
+        // Assert: asset1 is preserved, but asset2 is not added since scan was cancelled
+        Assert.Null(viewModel.ErrorMessage);
+        Assert.Single(viewModel.Assets);
+        Assert.Equal("Asset 1", viewModel.Assets[0].DisplayName);
+        Assert.False(viewModel.IsScanning);
+        Assert.Equal(viewModel.L["ScanProgressCancelled"], viewModel.ScanProgressText);
+    }
+
+    [Fact]
+    public async Task StartScanAsync_ShouldSupportSearchAndFilterUpdates_DuringScan()
+    {
+        // Arrange
+        var fakeFolderPicker = new FakeFolderPickerService { PresetPath = "/path/to/omsi" };
+        var delayedScanner = new DelayedAssetScanner();
+        var asset1 = new OmsiAsset { DisplayName = "House Object", RelativePath = "Folder/house.sco" };
+        var asset2 = new OmsiAsset { DisplayName = "Tree Object", RelativePath = "Folder/tree.sco" };
+        delayedScanner.AssetsToReturn.Add(asset1);
+        delayedScanner.AssetsToReturn.Add(asset2);
+
+        var viewModel = new MainWindowViewModel(delayedScanner, fakeFolderPicker, new FakeAppSettingsService());
+
+        // Act
+        var scanTask = viewModel.StartScanAsync("/path/to/omsi");
+
+        // Wait until first asset (House) is reported
+        await delayedScanner.FirstAssetReportedTcs.Task;
+
+        for (int i = 0; i < 50; i++)
+        {
+            if (viewModel.Assets.Count > 0) break;
+            await Task.Delay(10);
+        }
+
+        Assert.Single(viewModel.Assets);
+        Assert.Equal("House Object", viewModel.Assets[0].DisplayName);
+
+        // Update search text to "Tree" while the scan is still running in background
+        viewModel.SearchText = "Tree";
+
+        // This triggers ApplyFilter on the UI/test thread. Since "House Object" doesn't match "Tree", the list should clear.
+        Assert.Empty(viewModel.Assets);
+
+        // Resume/finish the scanner, which will report "Tree Object"
+        delayedScanner.FinishScanTcs.SetResult();
+        await scanTask;
+
+        for (int i = 0; i < 50; i++)
+        {
+            if (viewModel.Assets.Count > 0) break;
+            await Task.Delay(10);
+        }
+
+        // Assert: "Tree Object" matches the active filter and is added, while "House Object" remains filtered out
+        Assert.Single(viewModel.Assets);
+        Assert.Equal("Tree Object", viewModel.Assets[0].DisplayName);
+        Assert.Equal(2, viewModel.AssetCount); // Total discovered remains 2
+        Assert.Equal(1, viewModel.FilteredAssetCount); // Filtered count is 1
+    }
+
+    [Fact]
+    public async Task StartScanAsync_ShouldMarshalBackgroundUpdatesThroughInjectedDispatcher()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        fakeScanner.AssetsToReturn.Add(new OmsiAsset
+        {
+            DisplayName = "Dispatched Asset",
+            RelativePath = "Folder/dispatched.sco",
+            AssetType = OmsiAssetType.SceneryObject
+        });
+
+        var dispatcher = new RecordingUiDispatcher { HasAccess = false };
+        var viewModel = new MainWindowViewModel(
+            fakeScanner,
+            new FakeFolderPickerService(),
+            new FakeAppSettingsService(),
+            new FakeClipboardService(),
+            new FakeFileLauncherService(),
+            new LocalizationService(),
+            uiDispatcher: dispatcher);
+
+        // Act
+        await viewModel.StartScanAsync("/path/to/omsi");
+
+        // Assert
+        Assert.True(dispatcher.InvokeCount > 0);
+        Assert.Single(viewModel.Assets);
+        Assert.Equal("Dispatched Asset", viewModel.Assets[0].DisplayName);
+        Assert.False(viewModel.IsScanning);
+    }
+
+    [Fact]
+    public void SelectedAssetTextureReferences_OnlyScoTextures()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, appSettings);
+
+        var asset = new OmsiAsset
+        {
+            DisplayName = "Test Asset",
+            RelativePath = "Folder/asset.sco",
+            TextureReferences = new List<string> { "Texture1.png", "Texture2.jpg" }
+        };
+
+        // Act
+        viewModel.SelectedAsset = asset;
+
+        // Assert
+        Assert.True(viewModel.HasSelectedAssetTextureReferences);
+        Assert.False(viewModel.HasNoSelectedAssetTextureReferences);
+        Assert.Equal(2, viewModel.SelectedAssetTextureReferences.Count);
+
+        var tex1 = viewModel.SelectedAssetTextureReferences[0];
+        Assert.Equal("Texture1.png", tex1.Path);
+        Assert.Equal("SCO dosyası", tex1.Source); // Turkish is default in LocalizationService
+        Assert.True(tex1.IsScoSource);
+
+        var tex2 = viewModel.SelectedAssetTextureReferences[1];
+        Assert.Equal("Texture2.jpg", tex2.Path);
+        Assert.Equal("SCO dosyası", tex2.Source);
+        Assert.True(tex2.IsScoSource);
+    }
+
+    [Fact]
+    public void SelectedAssetTextureReferences_OnlyO3dTextures()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, appSettings);
+
+        var asset = new OmsiAsset
+        {
+            DisplayName = "Test Asset",
+            RelativePath = "Folder/asset.sco",
+            ModelReferences = new List<OmsiModelReference>
+            {
+                new OmsiModelReference
+                {
+                    MeshPath = "models\\Poco_Logo.o3d",
+                    Metadata = new O3dMetadata
+                    {
+                        TextureReferences = new List<O3dTextureReference>
+                        {
+                            new O3dTextureReference { Path = "O3dTex1.png" },
+                            new O3dTextureReference { Path = "O3dTex2.jpg" }
+                        }
+                    }
+                }
+            }
+        };
+
+        // Act
+        viewModel.SelectedAsset = asset;
+
+        // Assert
+        Assert.True(viewModel.HasSelectedAssetTextureReferences);
+        Assert.False(viewModel.HasNoSelectedAssetTextureReferences);
+        Assert.Equal(2, viewModel.SelectedAssetTextureReferences.Count);
+
+        var tex1 = viewModel.SelectedAssetTextureReferences[0];
+        Assert.Equal("O3dTex1.png", tex1.Path);
+        Assert.Equal("Poco_Logo.o3d", tex1.Source);
+        Assert.False(tex1.IsScoSource);
+
+        var tex2 = viewModel.SelectedAssetTextureReferences[1];
+        Assert.Equal("O3dTex2.jpg", tex2.Path);
+        Assert.Equal("Poco_Logo.o3d", tex2.Source);
+        Assert.False(tex2.IsScoSource);
+    }
+
+    [Fact]
+    public void SelectedAssetTextureReferences_DeduplicatesCaseInsensitively()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, appSettings);
+
+        var asset = new OmsiAsset
+        {
+            DisplayName = "Test Asset",
+            RelativePath = "Folder/asset.sco",
+            TextureReferences = new List<string> { "Logo.jpg" },
+            ModelReferences = new List<OmsiModelReference>
+            {
+                new OmsiModelReference
+                {
+                    MeshPath = "Poco_Logo.o3d",
+                    Metadata = new O3dMetadata
+                    {
+                        TextureReferences = new List<O3dTextureReference>
+                        {
+                            new O3dTextureReference { Path = "logo.JPG" }
+                        }
+                    }
+                }
+            }
+        };
+
+        // Act
+        viewModel.SelectedAsset = asset;
+
+        // Assert
+        Assert.Single(viewModel.SelectedAssetTextureReferences);
+        var tex = viewModel.SelectedAssetTextureReferences[0];
+        Assert.Equal("Logo.jpg", tex.Path);
+        Assert.Equal("SCO dosyası", tex.Source);
+        Assert.True(tex.IsScoSource);
+    }
+
+    [Fact]
+    public void SelectedAssetTextureReferences_SelectionChangeClearsAndReloads()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, appSettings);
+
+        var asset1 = new OmsiAsset
+        {
+            DisplayName = "Asset 1",
+            RelativePath = "Folder/asset1.sco",
+            TextureReferences = new List<string> { "Tex1.png" }
+        };
+
+        var asset2 = new OmsiAsset
+        {
+            DisplayName = "Asset 2",
+            RelativePath = "Folder/asset2.sco",
+            TextureReferences = new List<string> { "Tex2.png" }
+        };
+
+        // Act & Assert 1: Select asset1
+        viewModel.SelectedAsset = asset1;
+        Assert.Single(viewModel.SelectedAssetTextureReferences);
+        Assert.Equal("Tex1.png", viewModel.SelectedAssetTextureReferences[0].Path);
+        Assert.True(viewModel.HasSelectedAssetTextureReferences);
+
+        // Act & Assert 2: Select asset2
+        viewModel.SelectedAsset = asset2;
+        Assert.Single(viewModel.SelectedAssetTextureReferences);
+        Assert.Equal("Tex2.png", viewModel.SelectedAssetTextureReferences[0].Path);
+        Assert.True(viewModel.HasSelectedAssetTextureReferences);
+
+        // Act & Assert 3: Select null
+        viewModel.SelectedAsset = null;
+        Assert.Empty(viewModel.SelectedAssetTextureReferences);
+        Assert.False(viewModel.HasSelectedAssetTextureReferences);
+        Assert.True(viewModel.HasNoSelectedAssetTextureReferences);
+    }
+
+    [Fact]
+    public async Task LoadSettingsAsync_WithCacheHit_PopulatesAssetsFromCache_WithoutScanning()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService { PresetRoot = "/path/to/omsi" };
+        var cacheService = new FakeScanCacheService();
+        var cachedEntry = new OmsiScanCacheEntry
+        {
+            RootDirectory = "/path/to/omsi",
+            CachedAtUtc = DateTime.UtcNow,
+            Assets = new List<OmsiAsset>
+            {
+                new OmsiAsset { DisplayName = "Cached Asset 1", RelativePath = "Folder/asset1.sco" }
+            },
+            Warnings = new List<string> { "Cached Warning" },
+            Errors = new List<string> { "Cached Error" }
+        };
+        cacheService.Cache["/path/to/omsi"] = cachedEntry;
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            scanCacheService: cacheService);
+
+        // Act
+        await viewModel.LoadSettingsAsync();
+
+        // Assert
+        Assert.Equal("/path/to/omsi", viewModel.RootDirectory);
+        Assert.Equal(1, cacheService.GetCallsCount);
+        Assert.Null(fakeScanner.CapturedRootDirectory); // Verify NO scan was initiated
+        Assert.Single(viewModel.Assets);
+        Assert.Equal("Cached Asset 1", viewModel.Assets[0].DisplayName);
+        Assert.Single(viewModel.ScanWarnings);
+        Assert.Single(viewModel.ScanErrors);
+        Assert.Equal(1, viewModel.WarningCount);
+        Assert.Equal(1, viewModel.ErrorCount);
+        Assert.False(viewModel.IsEmptyState);
+    }
+
+    [Fact]
+    public async Task LoadSettingsAsync_WithCacheMiss_DoesNotTriggerScan_RemainsEmptyState()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService { PresetRoot = "/path/to/omsi" };
+        var cacheService = new FakeScanCacheService(); // Empty cache
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            scanCacheService: cacheService);
+
+        // Act
+        await viewModel.LoadSettingsAsync();
+
+        // Assert
+        Assert.Equal("/path/to/omsi", viewModel.RootDirectory);
+        Assert.Equal(1, cacheService.GetCallsCount);
+        Assert.Null(fakeScanner.CapturedRootDirectory); // Verify NO scan was initiated
+        Assert.Empty(viewModel.Assets);
+        Assert.True(viewModel.IsEmptyState);
+    }
+
+    [Fact]
+    public async Task SelectFolderCommand_WithCacheHit_PopulatesFromCache_WithoutScanning()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService { PresetPath = "/path/to/new-omsi" };
+        var appSettings = new FakeAppSettingsService();
+        var cacheService = new FakeScanCacheService();
+        var cachedEntry = new OmsiScanCacheEntry
+        {
+            RootDirectory = "/path/to/new-omsi",
+            CachedAtUtc = DateTime.UtcNow,
+            Assets = new List<OmsiAsset>
+            {
+                new OmsiAsset { DisplayName = "Cached Asset 2", RelativePath = "Folder/asset2.sco" }
+            }
+        };
+        cacheService.Cache["/path/to/new-omsi"] = cachedEntry;
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            scanCacheService: cacheService);
+
+        // Act
+        await viewModel.SelectFolderCommand.ExecuteAsync(null);
+
+        // Assert
+        Assert.Equal("/path/to/new-omsi", viewModel.RootDirectory);
+        Assert.Equal(1, cacheService.GetCallsCount);
+        Assert.Null(fakeScanner.CapturedRootDirectory); // Verify NO scan was initiated
+        Assert.Single(viewModel.Assets);
+        Assert.Equal("Cached Asset 2", viewModel.Assets[0].DisplayName);
+        Assert.False(viewModel.IsEmptyState);
+    }
+
+    [Fact]
+    public async Task SelectFolderCommand_WithCacheMiss_RunsFullScan_WritesToCache()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        fakeScanner.AssetsToReturn.Add(new OmsiAsset
+        {
+            DisplayName = "Scanned Asset",
+            RelativePath = "Folder/asset.sco"
+        });
+        var fakeFolderPicker = new FakeFolderPickerService { PresetPath = "/path/to/new-omsi" };
+        var appSettings = new FakeAppSettingsService();
+        var cacheService = new FakeScanCacheService(); // Empty cache
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            scanCacheService: cacheService);
+
+        // Act
+        await viewModel.SelectFolderCommand.ExecuteAsync(null);
+
+        // Assert
+        Assert.Equal("/path/to/new-omsi", viewModel.RootDirectory);
+        Assert.Equal(1, cacheService.GetCallsCount);
+        Assert.Equal("/path/to/new-omsi", fakeScanner.CapturedRootDirectory); // Verify full scan executed
+        Assert.Single(viewModel.Assets);
+        Assert.Equal("Scanned Asset", viewModel.Assets[0].DisplayName);
+        Assert.Equal(1, cacheService.SaveCallsCount); // Verify cache is written
+        Assert.True(cacheService.Cache.ContainsKey("/path/to/new-omsi"));
+        Assert.Single(cacheService.Cache["/path/to/new-omsi"].Assets);
+        Assert.Equal("Scanned Asset", cacheService.Cache["/path/to/new-omsi"].Assets[0].DisplayName);
+    }
+
+    [Fact]
+    public async Task RefreshScanCommand_RunsFullScan_OverwritesCache()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        fakeScanner.AssetsToReturn.Add(new OmsiAsset
+        {
+            DisplayName = "Fresh Asset",
+            RelativePath = "Folder/fresh.sco"
+        });
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var cacheService = new FakeScanCacheService();
+        var staleEntry = new OmsiScanCacheEntry
+        {
+            RootDirectory = "/path/to/omsi",
+            CachedAtUtc = DateTime.UtcNow.AddHours(-1),
+            Assets = new List<OmsiAsset>
+            {
+                new OmsiAsset { DisplayName = "Stale Asset", RelativePath = "Folder/stale.sco" }
+            }
+        };
+        cacheService.Cache["/path/to/omsi"] = staleEntry;
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            scanCacheService: cacheService);
+        viewModel.RootDirectory = "/path/to/omsi";
+
+        // Act
+        await viewModel.RefreshScanCommand.ExecuteAsync(null);
+
+        // Assert
+        Assert.Equal("/path/to/omsi", fakeScanner.CapturedRootDirectory); // Verify full scan executed
+        Assert.Single(viewModel.Assets);
+        Assert.Equal("Fresh Asset", viewModel.Assets[0].DisplayName);
+        Assert.Equal(1, cacheService.SaveCallsCount); // Verify cache updated
+        Assert.Equal("Fresh Asset", cacheService.Cache["/path/to/omsi"].Assets[0].DisplayName);
+    }
+
+    [Fact]
+    public async Task CancelledScan_DoesNotOverwriteCache()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner { ExceptionToThrow = new OperationCanceledException() };
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var cacheService = new FakeScanCacheService();
+        var existingEntry = new OmsiScanCacheEntry
+        {
+            RootDirectory = "/path/to/omsi",
+            CachedAtUtc = DateTime.UtcNow,
+            Assets = new List<OmsiAsset>
+            {
+                new OmsiAsset { DisplayName = "Existing Asset", RelativePath = "Folder/existing.sco" }
+            }
+        };
+        cacheService.Cache["/path/to/omsi"] = existingEntry;
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            scanCacheService: cacheService);
+        viewModel.RootDirectory = "/path/to/omsi";
+
+        // Act
+        await viewModel.RefreshScanCommand.ExecuteAsync(null);
+
+        // Assert
+        Assert.Equal(0, cacheService.SaveCallsCount); // Save should NOT be called on cancellation
+        Assert.Equal("Existing Asset", cacheService.Cache["/path/to/omsi"].Assets[0].DisplayName); // Existing cache preserved
+    }
+
+    [Fact]
+    public async Task CacheReadWriteErrors_DoNotCrashApp()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        fakeScanner.AssetsToReturn.Add(new OmsiAsset { DisplayName = "Scanned", RelativePath = "Folder/asset.sco" });
+        var fakeFolderPicker = new FakeFolderPickerService { PresetPath = "/path/to/omsi" };
+        var appSettings = new FakeAppSettingsService { PresetRoot = "/path/to/omsi" };
+        var cacheService = new FakeScanCacheService { ShouldThrow = true }; // Simulate read/write exception
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            scanCacheService: cacheService);
+
+        // Act & Assert 1: LoadSettingsAsync shouldn't crash on cache read error
+        var loadException = await Record.ExceptionAsync(() => viewModel.LoadSettingsAsync());
+        Assert.Null(loadException);
+
+        // Act & Assert 2: SelectFolderCommand shouldn't crash on cache read/write errors
+        var selectException = await Record.ExceptionAsync(() => viewModel.SelectFolderCommand.ExecuteAsync(null));
+        Assert.Null(selectException);
+    }
+
+    [Fact]
+    public void DebugAssemblies()
+    {
+        var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+        var names = new List<string>();
+        foreach (var assembly in assemblies)
+        {
+            names.Add(assembly.GetName().Name ?? string.Empty);
+        }
+        var matches = names.FindAll(n => n.Contains("test", StringComparison.OrdinalIgnoreCase));
+        Assert.NotEmpty(matches);
     }
 }

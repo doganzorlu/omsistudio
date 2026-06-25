@@ -114,6 +114,14 @@ This document outlines the roadmap, priority groups, and status of OmsiStudio ta
 
 ## 📋 Planned Backlog
 
+### OS-007 - O3D Geometry Pipeline
+*   **OS-007-FEATURE-002 - O3D Geometry Pipeline**
+    *   *Purpose*: Safely parse supported, unencrypted `.o3d` geometry into internal mesh data, including vertices, normals, UV coordinates, triangle indices, and material slot references.
+    *   *Area*: `OmsiStudio.Core`, `OmsiStudio.OmsiFormat`
+    *   *Plan*: See [O3D_GEOMETRY_PIPELINE_EPIC.md](O3D_GEOMETRY_PIPELINE_EPIC.md) for the ordered AI2 task breakdown.
+    *   *Mandatory Safety*: DoS protection, index validation, string bounds validation, checked byte-size calculations, controlled diagnostics, and cancellation support.
+    *   *Scope Creep Note*: Do not implement 3D rendering, viewport controls, glTF/OBJ export, package generation, or Blender integration.
+
 ### P1 - App Kullanılabilirliği
 *(No pending tasks)*
 

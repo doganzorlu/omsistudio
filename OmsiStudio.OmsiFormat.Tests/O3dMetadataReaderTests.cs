@@ -34,6 +34,7 @@ public class O3dMetadataReaderTests
         Assert.Equal(O3dMetadataStatus.Success, result.Status);
         Assert.NotNull(result.Metadata);
         Assert.Equal(O3dFormatVersion.Version3, result.Metadata.Version);
+        Assert.Equal(3, result.Metadata.RawVersion);
         Assert.False(result.Metadata.IsEncrypted);
         Assert.Equal(1, result.Metadata.MeshCount);
         Assert.Equal(100, result.Metadata.VertexCount);
@@ -73,6 +74,7 @@ public class O3dMetadataReaderTests
         Assert.Equal(O3dMetadataStatus.Success, result.Status);
         Assert.NotNull(result.Metadata);
         Assert.Equal(O3dFormatVersion.Version3, result.Metadata.Version);
+        Assert.Equal(3, result.Metadata.RawVersion);
         Assert.False(result.Metadata.IsEncrypted);
         Assert.Equal(1, result.Metadata.MeshCount);
         Assert.Equal(100, result.Metadata.VertexCount);
@@ -98,6 +100,7 @@ public class O3dMetadataReaderTests
         Assert.NotNull(result.Metadata);
         Assert.True(result.Metadata.IsEncrypted);
         Assert.Equal(O3dFormatVersion.Unknown, result.Metadata.Version);
+        Assert.Equal(0, result.Metadata.RawVersion);
         Assert.Equal(0, result.Metadata.MeshCount);
         Assert.Equal(0, result.Metadata.VertexCount);
         Assert.Equal(0, result.Metadata.TriangleCount);
@@ -154,7 +157,7 @@ public class O3dMetadataReaderTests
             Assert.Null(result.Metadata);
             Assert.Single(result.Diagnostics);
             Assert.Equal(O3dDiagnosticCode.UnsupportedVersion, result.Diagnostics[0].Code);
-            Assert.Equal(O3dDiagnosticSeverity.Error, result.Diagnostics[0].Severity);
+            Assert.Equal(O3dDiagnosticSeverity.Warning, result.Diagnostics[0].Severity);
         }
         finally
         {
@@ -191,6 +194,7 @@ public class O3dMetadataReaderTests
             Assert.Equal(O3dMetadataStatus.Success, result.Status);
             Assert.NotNull(result.Metadata);
             Assert.Equal(O3dFormatVersion.Legacy, result.Metadata.Version);
+            Assert.Equal(2, result.Metadata.RawVersion);
             Assert.False(result.Metadata.IsEncrypted);
             Assert.Equal(1, result.Metadata.MeshCount);
             Assert.Equal(100, result.Metadata.VertexCount);
@@ -483,6 +487,138 @@ public class O3dMetadataReaderTests
             await Assert.ThrowsAsync<OperationCanceledException>(async () =>
                 await reader.ReadAsync(tempFile, cts.Token)
             );
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ReadAsync_WithRealO3dHeader_SucceedsAndReturnsExpectedCounts()
+    {
+        // Arrange
+        var reader = new O3dMetadataReader();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"O3dRealTest_{Guid.NewGuid():N}.o3d");
+        
+        using (var ms = new MemoryStream())
+        {
+            // Magic
+            ms.WriteByte(0x84);
+            ms.WriteByte(0x19);
+            // Version
+            ms.WriteByte(0x07);
+            // Options
+            ms.WriteByte(0x00);
+            // Encryption Key
+            ms.Write([0xff, 0xff, 0xff, 0xff], 0, 4);
+            
+            // Vertices section
+            ms.WriteByte(0x17);
+            ms.Write([0x64, 0x00, 0x00, 0x00], 0, 4); // 100 vertices
+            ms.Write(new byte[100 * 32], 0, 100 * 32);
+            
+            // Triangles section
+            ms.WriteByte(0x49);
+            ms.Write([0x32, 0x00, 0x00, 0x00], 0, 4); // 50 triangles
+            ms.Write(new byte[50 * 8], 0, 50 * 8); // short indices
+            
+            // Materials section
+            ms.WriteByte(0x26);
+            ms.Write([0x01, 0x00], 0, 2); // 1 material
+            ms.Write(new byte[44], 0, 44);
+            ms.WriteByte(0x0b); // length 11
+            ms.Write(System.Text.Encoding.ASCII.GetBytes("texture.bmp"), 0, 11);
+            
+            await File.WriteAllBytesAsync(tempFile, ms.ToArray());
+        }
+        
+        try
+        {
+            // Act
+            var result = await reader.ReadAsync(tempFile);
+            
+            // Assert
+            Assert.Equal(O3dMetadataStatus.Success, result.Status);
+            Assert.NotNull(result.Metadata);
+            Assert.Equal(O3dFormatVersion.Version3, result.Metadata.Version);
+            Assert.Equal(7, result.Metadata.RawVersion);
+            Assert.Equal("7", result.Metadata.DisplayVersion);
+            Assert.False(result.Metadata.IsEncrypted);
+            Assert.Equal(1, result.Metadata.MeshCount);
+            Assert.Equal(100, result.Metadata.VertexCount);
+            Assert.Equal(50, result.Metadata.TriangleCount);
+            Assert.Equal(1, result.Metadata.MaterialCount);
+            Assert.Single(result.Metadata.TextureReferences);
+            Assert.Equal("texture.bmp", result.Metadata.TextureReferences[0].Path);
+            Assert.Empty(result.Diagnostics);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ReadAsync_WithRealO3dLegacyHeader_SucceedsAndReturnsExpectedCounts()
+    {
+        // Arrange
+        var reader = new O3dMetadataReader();
+        var tempFile = Path.Combine(Path.GetTempPath(), $"O3dRealLegacyTest_{Guid.NewGuid():N}.o3d");
+        
+        using (var ms = new MemoryStream())
+        {
+            // Magic
+            ms.WriteByte(0x84);
+            ms.WriteByte(0x19);
+            // Version
+            ms.WriteByte(0x02); // Legacy version
+            
+            // Vertices section
+            ms.WriteByte(0x17);
+            ms.Write([0x64, 0x00], 0, 2); // 100 vertices as ushort
+            ms.Write(new byte[100 * 32], 0, 100 * 32);
+            
+            // Triangles section
+            ms.WriteByte(0x49);
+            ms.Write([0x32, 0x00], 0, 2); // 50 triangles as ushort
+            ms.Write(new byte[50 * 8], 0, 50 * 8); // short indices
+            
+            // Materials section
+            ms.WriteByte(0x26);
+            ms.Write([0x01, 0x00], 0, 2); // 1 material
+            ms.Write(new byte[44], 0, 44);
+            ms.WriteByte(0x0b); // length 11
+            ms.Write(System.Text.Encoding.ASCII.GetBytes("texture.bmp"), 0, 11);
+            
+            await File.WriteAllBytesAsync(tempFile, ms.ToArray());
+        }
+        
+        try
+        {
+            // Act
+            var result = await reader.ReadAsync(tempFile);
+            
+            // Assert
+            Assert.Equal(O3dMetadataStatus.Success, result.Status);
+            Assert.NotNull(result.Metadata);
+            Assert.Equal(O3dFormatVersion.Legacy, result.Metadata.Version);
+            Assert.Equal(2, result.Metadata.RawVersion);
+            Assert.Equal("2", result.Metadata.DisplayVersion);
+            Assert.False(result.Metadata.IsEncrypted);
+            Assert.Equal(1, result.Metadata.MeshCount);
+            Assert.Equal(100, result.Metadata.VertexCount);
+            Assert.Equal(50, result.Metadata.TriangleCount);
+            Assert.Equal(1, result.Metadata.MaterialCount);
+            Assert.Single(result.Metadata.TextureReferences);
+            Assert.Equal("texture.bmp", result.Metadata.TextureReferences[0].Path);
+            Assert.Empty(result.Diagnostics);
         }
         finally
         {

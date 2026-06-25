@@ -113,7 +113,12 @@ public class OmsiAssetScanner : IOmsiAssetScanner
 
         if (string.IsNullOrWhiteSpace(rootDirectory) || !Directory.Exists(rootDirectory))
         {
-            errors.Add($"OMSI root directory '{rootDirectory}' does not exist.");
+            var errMsg = $"OMSI root directory '{rootDirectory}' does not exist.";
+            errors.Add(errMsg);
+            progress?.Report(new OmsiScanProgress
+            {
+                NewErrors = new List<string> { errMsg }
+            });
             return new OmsiScanResult
             {
                 DiscoveredAssets = discoveredAssets,
@@ -125,7 +130,12 @@ public class OmsiAssetScanner : IOmsiAssetScanner
         var sceneryObjectsDir = OmsiDirectoryHelper.GetSceneryObjectsDir(rootDirectory);
         if (!Directory.Exists(sceneryObjectsDir))
         {
-            errors.Add($"Sceneryobjects directory does not exist under root '{rootDirectory}'.");
+            var errMsg = $"Sceneryobjects directory does not exist under root '{rootDirectory}'.";
+            errors.Add(errMsg);
+            progress?.Report(new OmsiScanProgress
+            {
+                NewErrors = new List<string> { errMsg }
+            });
             return new OmsiScanResult
             {
                 DiscoveredAssets = discoveredAssets,
@@ -150,12 +160,8 @@ public class OmsiAssetScanner : IOmsiAssetScanner
                 OmsiAsset asset;
                 var relativePath = Path.GetRelativePath(sceneryObjectsDir, file);
 
-                progress?.Report(new OmsiScanProgress
-                {
-                    DiscoveredFileCount = discoveredCount,
-                    ParsedAssetCount = parsedCount,
-                    CurrentFilePath = relativePath
-                });
+                var fileWarnings = new List<string>();
+                var fileErrors = new List<string>();
 
                 try
                 {
@@ -164,10 +170,10 @@ public class OmsiAssetScanner : IOmsiAssetScanner
                     {
                         foreach (var warning in parserWarnings)
                         {
-                            warnings.Add($"[{Path.GetFileName(file)}] {warning}");
+                            fileWarnings.Add($"[{Path.GetFileName(file)}] {warning}");
                         }
                     }
-                    asset = await ResolveModelReferencesAndMetadataAsync(rootDirectory, asset, warnings, cancellationToken);
+                    asset = await ResolveModelReferencesAndMetadataAsync(rootDirectory, asset, fileWarnings, cancellationToken);
                     parsedCount++;
                 }
                 catch (OperationCanceledException)
@@ -176,7 +182,8 @@ public class OmsiAssetScanner : IOmsiAssetScanner
                 }
                 catch (Exception ex)
                 {
-                    errors.Add($"Error parsing file '{file}': {ex.Message}");
+                    var errMsg = $"Error parsing file '{file}': {ex.Message}";
+                    fileErrors.Add(errMsg);
                     asset = new OmsiAsset
                     {
                         DisplayName = Path.GetFileNameWithoutExtension(file),
@@ -187,6 +194,19 @@ public class OmsiAssetScanner : IOmsiAssetScanner
                 }
 
                 discoveredAssets.Add(asset);
+                warnings.AddRange(fileWarnings);
+                errors.AddRange(fileErrors);
+
+                progress?.Report(new OmsiScanProgress
+                {
+                    DiscoveredFileCount = discoveredCount,
+                    ParsedAssetCount = parsedCount,
+                    CurrentFilePath = relativePath,
+                    NewAsset = asset,
+                    NewWarnings = fileWarnings,
+                    NewErrors = fileErrors
+                });
+
                 await Task.Yield();
             }
         }
@@ -196,7 +216,12 @@ public class OmsiAssetScanner : IOmsiAssetScanner
         }
         catch (Exception ex)
         {
-            errors.Add($"Scan process encountered a fatal error: {ex.Message}");
+            var errMsg = $"Scan process encountered a fatal error: {ex.Message}";
+            errors.Add(errMsg);
+            progress?.Report(new OmsiScanProgress
+            {
+                NewErrors = new List<string> { errMsg }
+            });
         }
 
         return new OmsiScanResult
@@ -249,7 +274,10 @@ public class OmsiAssetScanner : IOmsiAssetScanner
                     {
                         foreach (var diag in readResult.Diagnostics)
                         {
-                            warningsCollector.Add($"[{Path.GetFileName(asset.SourceScoPath)}] Model reference metadata warning/error in '{modelRef.MeshPath}': [{diag.Code}] {diag.Message}");
+                            if (diag.Code != O3dDiagnosticCode.UnsupportedVersion)
+                            {
+                                warningsCollector.Add($"[{Path.GetFileName(asset.SourceScoPath)}] Model reference metadata warning/error in '{modelRef.MeshPath}': [{diag.Code}] {diag.Message}");
+                            }
                         }
                     }
                 }

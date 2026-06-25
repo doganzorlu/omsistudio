@@ -141,6 +141,8 @@ Represents a texture reference embedded in the model slots.
 Represents parsed header metadata statistics from an O3D file.
 
 *   `Version` (O3dFormatVersion): The O3D file format version.
+*   `RawVersion` (int): Numeric version value read directly from the O3D header when available.
+*   `DisplayVersion` (string): UI-friendly version text preserving `RawVersion` for real O3D files.
 *   `IsEncrypted` (bool): Indicates if the model file is encrypted.
 *   `MeshCount` (int): Number of meshes/submeshes.
 *   `VertexCount` (int): Count of vertices.
@@ -193,5 +195,83 @@ Represents the output details of an O3D metadata reading execution.
 Defines the service contract for parsing O3D model file header metadata asynchronously.
 
 *   `ReadAsync(filePath, cancellationToken)`: Reads and parses version, encryption, and count metadata from the specified O3D file asynchronously, returning an `O3dMetadataReadResult`. Supports cooperative cancellation.
+
+## O3D Geometry Models
+
+### O3dGeometryStatus (Enum)
+
+*   `Unknown = 0`: Default unrecognized geometry read status.
+*   `Success = 1`: Geometry was read successfully.
+*   `Unsupported = 2`: The O3D format version is unsupported by the geometry reader.
+*   `Encrypted = 3`: The O3D file is encrypted and cannot be parsed.
+*   `Invalid = 4`: The O3D geometry data is invalid or corrupted.
+*   `Failed = 5`: The geometry read failed due to file system or structural failures.
+
+### O3dUv
+
+Represents a 2D texture coordinate (UV) in a 3D model.
+
+*   `U` (float): Horizontal texture coordinate.
+*   `V` (float): Vertical texture coordinate.
+
+### O3dNormal
+
+Represents a 3D normal vector.
+
+*   `X` (float): X component of the normal vector.
+*   `Y` (float): Y component of the normal vector.
+*   `Z` (float): Z component of the normal vector.
+
+### O3dVertex
+
+Represents a vertex in a 3D model containing position coordinates, a normal vector, and UV texture coordinates.
+
+*   `X` (float): X position coordinate of the vertex.
+*   `Y` (float): Y position coordinate of the vertex.
+*   `Z` (float): Z position coordinate of the vertex.
+*   `Normal` (O3dNormal): Normal vector of the vertex.
+*   `Uv` (O3dUv): Texture coordinate (UV) of the vertex.
+
+### O3dMaterialSlot
+
+Represents a material slot in an O3D model, mapping a material name to an optional texture reference path.
+
+*   `MaterialName` (string): The name of the material.
+*   `TextureReference` (string?): Optional texture reference path.
+
+### O3dTriangle
+
+Represents a triangle/face in an O3D model referencing three vertex indices and an optional material slot index.
+
+*   `V0` (int): Index of the first vertex.
+*   `V1` (int): Index of the second vertex.
+*   `V2` (int): Index of the third vertex.
+*   `MaterialSlotIndex` (int?): Optional index of the material slot assigned to this triangle.
+
+### O3dMeshData
+
+Represents the complete parsed mesh geometry data of an O3D model.
+
+*   `Vertices` (IReadOnlyList<O3dVertex>): Collection of vertices.
+*   `Triangles` (IReadOnlyList<O3dTriangle>): Collection of triangles/faces.
+*   `MaterialSlots` (IReadOnlyList<O3dMaterialSlot>): Collection of material slots.
+*   `Metadata` (O3dMetadata?): Optional header metadata associated with the mesh.
+
+### O3dGeometryReadResult
+
+Represents the output details of an O3D geometry reading execution.
+
+*   `MeshData` (O3dMeshData?): Parsed mesh geometry data (if successful).
+*   `Status` (O3dGeometryStatus): Final outcome status.
+*   `Diagnostics` (IReadOnlyList<O3dDiagnostic>): Cumulative list of warnings, errors, or diagnostics generated during parsing.
+
+## O3D Geometry Services
+
+### IO3dGeometryReader
+
+Defines the service contract for parsing O3D model file geometry asynchronously.
+
+*   `ReadAsync(filePath, cancellationToken)`: Reads and parses version, encryption, vertex, face, and material geometry data from the specified O3D file asynchronously, returning an `O3dGeometryReadResult`. Supports cooperative cancellation.
+
 
 

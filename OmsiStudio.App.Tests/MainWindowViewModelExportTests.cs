@@ -14,6 +14,10 @@ namespace OmsiStudio.App.Tests;
 
 public class MainWindowViewModelExportTests
 {
+    static MainWindowViewModelExportTests()
+    {
+        MainWindowViewModel.IsTestMode = true;
+    }
     private class FakeFolderPickerService : IFolderPickerService
     {
         public string? PresetPath { get; set; }
@@ -90,7 +94,11 @@ public class MainWindowViewModelExportTests
 
     private class FakeLocalizationService : ILocalizationService
     {
-        public event EventHandler? CultureChanged;
+        public event EventHandler? CultureChanged
+        {
+            add { }
+            remove { }
+        }
         public string CurrentCulture => "en-US";
         public string this[string key] => key switch
         {

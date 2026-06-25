@@ -28,8 +28,16 @@ public partial class App : Application
             var scanner = new OmsiAssetScanner(parser, directoryScanner);
             var folderPickerService = new AvaloniaFolderPickerService();
             var appSettingsService = new JsonAppSettingsService();
+            var uiDispatcher = new AvaloniaUiDispatcher();
 
-            var viewModel = new MainWindowViewModel(scanner, folderPickerService, appSettingsService);
+            var viewModel = new MainWindowViewModel(
+                scanner,
+                folderPickerService,
+                appSettingsService,
+                new AvaloniaClipboardService(),
+                new ProcessFileLauncherService(),
+                new LocalizationService(),
+                uiDispatcher: uiDispatcher);
             _ = viewModel.LoadSettingsAsync();
 
             desktop.MainWindow = new MainWindow

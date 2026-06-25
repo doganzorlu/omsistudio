@@ -27,15 +27,20 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IFileLauncherService _fileLauncherService;
     private readonly ILocalizationService _localizationService;
     private readonly IAssetConversionService _conversionService;
+    private readonly IUiDispatcher _uiDispatcher;
+    private readonly IScanCacheService _scanCacheService;
     private CancellationTokenSource? _scanCts;
+    private readonly object _scanLock = new();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(RootDirectoryDisplay))]
+    [NotifyCanExecuteChangedFor(nameof(RefreshScanCommand))]
     private string? _rootDirectory;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowNoSelectionPrompt))]
     [NotifyPropertyChangedFor(nameof(ShowCancellationBanner))]
+    [NotifyPropertyChangedFor(nameof(ShowTopScanSummary))]
     private bool _isScanning;
 
     [ObservableProperty]
@@ -82,6 +87,8 @@ public partial class MainWindowViewModel : ViewModelBase
     [NotifyPropertyChangedFor(nameof(ShowNoSelectionPrompt))]
     [NotifyPropertyChangedFor(nameof(HasSelectedAsset))]
     [NotifyPropertyChangedFor(nameof(SelectedAssetDisplayName))]
+    [NotifyPropertyChangedFor(nameof(HasSelectedAssetTextureReferences))]
+    [NotifyPropertyChangedFor(nameof(HasNoSelectedAssetTextureReferences))]
     private OmsiAsset? _selectedAsset;
 
     [ObservableProperty]
@@ -102,22 +109,28 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public ObservableCollection<string> ScanWarnings { get; } = new();
     public ObservableCollection<string> ScanErrors { get; } = new();
+    public ObservableCollection<AssetTextureReferenceViewModel> SelectedAssetTextureReferences { get; } = new();
+    public bool HasSelectedAssetTextureReferences => SelectedAssetTextureReferences.Count > 0;
+    public bool HasNoSelectedAssetTextureReferences => !HasSelectedAssetTextureReferences;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasScanMessages))]
     [NotifyPropertyChangedFor(nameof(HasScanWarnings))]
     [NotifyPropertyChangedFor(nameof(ScanWarningsDisplay))]
+    [NotifyPropertyChangedFor(nameof(ShowTopScanSummary))]
     private int _warningCount;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasScanMessages))]
     [NotifyPropertyChangedFor(nameof(HasScanErrors))]
     [NotifyPropertyChangedFor(nameof(ScanErrorsDisplay))]
+    [NotifyPropertyChangedFor(nameof(ShowTopScanSummary))]
     private int _errorCount;
 
     public bool HasScanMessages => WarningCount > 0 || ErrorCount > 0;
     public bool HasScanWarnings => WarningCount > 0;
     public bool HasScanErrors => ErrorCount > 0;
+    public bool ShowTopScanSummary => !IsScanning && HasScanMessages;
 
     public string ScanErrorsDisplay => string.Format(_localizationService["ScanErrorFormat"], ErrorCount);
     public string ScanWarningsDisplay => string.Format(_localizationService["ScanWarningFormat"], WarningCount);
@@ -143,6 +156,50 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         ExportSuccessMessage = null;
         ExportErrorMessage = null;
+
+        SelectedAssetTextureReferences.Clear();
+        if (value != null)
+        {
+            var seen = new Dictionary<string, AssetTextureReferenceViewModel>(StringComparer.OrdinalIgnoreCase);
+
+            if (value.TextureReferences != null)
+            {
+                var scoSourceLabel = _localizationService["ScoTextureSource"];
+                foreach (var tex in value.TextureReferences)
+                {
+                    if (tex != null && !seen.ContainsKey(tex))
+                    {
+                        seen.Add(tex, new AssetTextureReferenceViewModel(tex, scoSourceLabel, true));
+                    }
+                }
+            }
+
+            if (value.ModelReferences != null)
+            {
+                foreach (var modelRef in value.ModelReferences)
+                {
+                    if (modelRef?.Metadata?.TextureReferences != null)
+                    {
+                        var meshFileName = Path.GetFileName(modelRef.MeshPath.Replace('\\', '/'));
+                        foreach (var o3dTex in modelRef.Metadata.TextureReferences)
+                        {
+                            if (o3dTex?.Path != null && !seen.ContainsKey(o3dTex.Path))
+                            {
+                                seen.Add(o3dTex.Path, new AssetTextureReferenceViewModel(o3dTex.Path, meshFileName, false));
+                            }
+                        }
+                    }
+                }
+            }
+
+            foreach (var vm in seen.Values)
+            {
+                SelectedAssetTextureReferences.Add(vm);
+            }
+        }
+
+        OnPropertyChanged(nameof(HasSelectedAssetTextureReferences));
+        OnPropertyChanged(nameof(HasNoSelectedAssetTextureReferences));
     }
 
     [ObservableProperty]
@@ -195,6 +252,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _fileLauncherService = new ProcessFileLauncherService();
         _localizationService = new LocalizationService();
         _conversionService = new AssetConversionService();
+        _uiDispatcher = new InlineUiDispatcher();
+        _scanCacheService = (IsTestMode || IsTestEnvironment()) ? new NullScanCacheService() : new JsonScanCacheService();
 
         _localizationService.CultureChanged += (s, e) => OnPropertyChanged(string.Empty);
     }
@@ -234,7 +293,9 @@ public partial class MainWindowViewModel : ViewModelBase
         IClipboardService clipboardService,
         IFileLauncherService fileLauncherService,
         ILocalizationService localizationService,
-        IAssetConversionService? conversionService = null)
+        IAssetConversionService? conversionService = null,
+        IUiDispatcher? uiDispatcher = null,
+        IScanCacheService? scanCacheService = null)
     {
         _scanner = scanner ?? throw new ArgumentNullException(nameof(scanner));
         _folderPickerService = folderPickerService ?? throw new ArgumentNullException(nameof(folderPickerService));
@@ -243,6 +304,8 @@ public partial class MainWindowViewModel : ViewModelBase
         _fileLauncherService = fileLauncherService ?? throw new ArgumentNullException(nameof(fileLauncherService));
         _localizationService = localizationService ?? throw new ArgumentNullException(nameof(localizationService));
         _conversionService = conversionService ?? new AssetConversionService();
+        _uiDispatcher = uiDispatcher ?? new InlineUiDispatcher();
+        _scanCacheService = scanCacheService ?? ((IsTestMode || IsTestEnvironment()) ? new NullScanCacheService() : new JsonScanCacheService());
 
         _localizationService.CultureChanged += (s, e) => OnPropertyChanged(string.Empty);
     }
@@ -251,10 +314,10 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            var lastRoot = await _appSettingsService.GetLastOmsiRootAsync(cancellationToken);
-            if (!string.IsNullOrWhiteSpace(lastRoot))
+            var lastLang = await _appSettingsService.GetLastLanguageAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(lastLang))
             {
-                RootDirectory = lastRoot;
+                _localizationService.SetCulture(lastLang);
             }
         }
         catch
@@ -264,10 +327,20 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            var lastLang = await _appSettingsService.GetLastLanguageAsync(cancellationToken);
-            if (!string.IsNullOrWhiteSpace(lastLang))
+            var lastRoot = await _appSettingsService.GetLastOmsiRootAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(lastRoot))
             {
-                _localizationService.SetCulture(lastLang);
+                RootDirectory = lastRoot;
+
+                var cached = await _scanCacheService.GetAsync(lastRoot, cancellationToken);
+                if (cached != null)
+                {
+                    PopulateFromCacheEntry(cached);
+                }
+                else
+                {
+                    IsEmptyState = true;
+                }
             }
         }
         catch
@@ -288,8 +361,92 @@ public partial class MainWindowViewModel : ViewModelBase
         var folderPath = await _folderPickerService.PickFolderAsync();
         if (!string.IsNullOrEmpty(folderPath))
         {
-            await StartScanAsync(folderPath);
+            RootDirectory = folderPath;
+            try
+            {
+                await _appSettingsService.SaveLastOmsiRootAsync(folderPath);
+            }
+            catch
+            {
+                // Non-fatal
+            }
+
+            OmsiScanCacheEntry? cached = null;
+            try
+            {
+                cached = await _scanCacheService.GetAsync(folderPath);
+            }
+            catch
+            {
+                // Non-fatal, fallback to null to trigger full scan
+            }
+
+            if (cached != null)
+            {
+                PopulateFromCacheEntry(cached);
+                ErrorMessage = null;
+                IsScanning = false;
+                SelectedAsset = null;
+            }
+            else
+            {
+                await StartScanAsync(folderPath);
+            }
         }
+    }
+
+    public bool CanRefreshScan => !string.IsNullOrWhiteSpace(RootDirectory);
+
+    [RelayCommand(CanExecute = nameof(CanRefreshScan))]
+    private async Task RefreshScanAsync()
+    {
+        if (CanRefreshScan)
+        {
+            await StartScanAsync(RootDirectory!);
+        }
+    }
+
+    private void PopulateFromCacheEntry(OmsiScanCacheEntry entry)
+    {
+        _allAssets.Clear();
+        Assets.Clear();
+        AssetGroups.Clear();
+        ScanWarnings.Clear();
+        ScanErrors.Clear();
+
+        HasActiveSearch = !string.IsNullOrWhiteSpace(SearchText);
+        SelectedAsset = null;
+
+        _allAssets.AddRange(entry.Assets);
+        AssetCount = _allAssets.Count;
+        HasAssets = _allAssets.Count > 0;
+        IsEmptyState = _allAssets.Count == 0;
+
+        foreach (var asset in _allAssets)
+        {
+            if (MatchesFilter(asset))
+            {
+                Assets.Add(asset);
+                AddAssetToGroupsIncrementally(asset);
+            }
+        }
+        FilteredAssetCount = Assets.Count;
+
+        foreach (var warning in entry.Warnings)
+        {
+            ScanWarnings.Add(warning);
+        }
+        WarningCount = ScanWarnings.Count;
+
+        foreach (var error in entry.Errors)
+        {
+            ScanErrors.Add(error);
+        }
+        ErrorCount = ScanErrors.Count;
+
+        UpdateUnsupportedO3dWarningSummary();
+
+        ScanProgressText = string.Format(_localizationService["ScanProgressCompletedFormat"], _allAssets.Count);
     }
 
     [RelayCommand]
@@ -325,6 +482,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         ScanWarnings.Clear();
         ScanErrors.Clear();
+        _previousUnsupportedSummary = null;
         WarningCount = 0;
         ErrorCount = 0;
 
@@ -344,65 +502,164 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             var progress = new Progress<OmsiScanProgress>(p =>
             {
-                ScanProgressText = string.Format(_localizationService["ScanProgressFormat"], p.ParsedAssetCount, System.IO.Path.GetFileName(p.CurrentFilePath));
+                if (token.IsCancellationRequested) return;
+
+                _ = RunOnUiAsync(() =>
+                {
+                    lock (_scanLock)
+                    {
+                        if (token.IsCancellationRequested) return;
+
+                        if (!string.IsNullOrEmpty(p.CurrentFilePath))
+                        {
+                            ScanProgressText = string.Format(_localizationService["ScanProgressActiveFormat"], p.ParsedAssetCount);
+                        }
+
+                        if (p.NewAsset != null && !_allAssets.Contains(p.NewAsset))
+                        {
+                            _allAssets.Add(p.NewAsset);
+                            AssetCount = _allAssets.Count;
+                            HasAssets = _allAssets.Count > 0;
+                            IsEmptyState = _allAssets.Count == 0;
+
+                            if (MatchesFilter(p.NewAsset))
+                            {
+                                Assets.Add(p.NewAsset);
+                                FilteredAssetCount = Assets.Count;
+                                AddAssetToGroupsIncrementally(p.NewAsset);
+                            }
+                        }
+
+                        if (p.NewWarnings != null && p.NewWarnings.Count > 0)
+                        {
+                            foreach (var warning in p.NewWarnings)
+                            {
+                                if (!ScanWarnings.Contains(warning))
+                                {
+                                    ScanWarnings.Add(warning);
+                                }
+                            }
+                        }
+
+                        if (p.NewErrors != null && p.NewErrors.Count > 0)
+                        {
+                            foreach (var error in p.NewErrors)
+                            {
+                                if (!ScanErrors.Contains(error))
+                                {
+                                    ScanErrors.Add(error);
+                                }
+                            }
+                            ErrorCount = ScanErrors.Count;
+                        }
+
+                        UpdateUnsupportedO3dWarningSummary();
+                    }
+                });
             });
 
-            var result = await _scanner.ScanAsync(directoryPath, progress, token);
+            var result = await Task.Run(() => _scanner.ScanAsync(directoryPath, progress, token), token);
 
-            // Populates discovered assets (including partial results if scan was cancelled)
-            foreach (var asset in result.DiscoveredAssets)
+            OmsiScanCacheEntry? cacheEntry = null;
+            await RunOnUiAsync(() =>
             {
-                _allAssets.Add(asset);
-            }
-            AssetCount = _allAssets.Count;
-            HasAssets = _allAssets.Count > 0;
+                lock (_scanLock)
+                {
+                    foreach (var asset in result.DiscoveredAssets)
+                    {
+                        if (!_allAssets.Contains(asset))
+                        {
+                            _allAssets.Add(asset);
+                            if (MatchesFilter(asset))
+                            {
+                                Assets.Add(asset);
+                                AddAssetToGroupsIncrementally(asset);
+                            }
+                        }
+                    }
+                    AssetCount = _allAssets.Count;
+                    FilteredAssetCount = Assets.Count;
+                    HasAssets = _allAssets.Count > 0;
 
-            foreach (var warning in result.Warnings)
-            {
-                ScanWarnings.Add(warning);
-            }
-            foreach (var error in result.Errors)
-            {
-                ScanErrors.Add(error);
-            }
-            WarningCount = ScanWarnings.Count;
-            ErrorCount = ScanErrors.Count;
+                    foreach (var warning in result.Warnings)
+                    {
+                        if (!ScanWarnings.Contains(warning))
+                        {
+                            ScanWarnings.Add(warning);
+                        }
+                    }
 
-            ApplyFilter();
+                    foreach (var error in result.Errors)
+                    {
+                        if (!ScanErrors.Contains(error))
+                        {
+                            ScanErrors.Add(error);
+                        }
+                    }
+                    ErrorCount = ScanErrors.Count;
 
-            if (_allAssets.Count == 0)
-            {
-                IsEmptyState = true;
-            }
+                    UpdateUnsupportedO3dWarningSummary();
 
-            if (token.IsCancellationRequested)
+                    if (token.IsCancellationRequested)
+                    {
+                        ScanProgressText = _localizationService["ScanProgressCancelled"];
+                    }
+                    else
+                    {
+                        ScanProgressText = string.Format(_localizationService["ScanProgressCompletedFormat"], _allAssets.Count);
+
+                        cacheEntry = new OmsiScanCacheEntry
+                        {
+                            RootDirectory = directoryPath,
+                            CachedAtUtc = DateTime.UtcNow,
+                            Assets = _allAssets.ToList(),
+                            Warnings = ScanWarnings.ToList(),
+                            Errors = ScanErrors.ToList()
+                        };
+                    }
+
+                    if (_allAssets.Count == 0)
+                    {
+                        IsEmptyState = true;
+                    }
+                }
+            });
+
+            if (cacheEntry != null)
             {
-                ScanProgressText = _localizationService["ScanCancelledMessage"];
-            }
-            else
-            {
-                ScanProgressText = string.Empty;
+                try
+                {
+                    await _scanCacheService.SaveAsync(cacheEntry);
+                }
+                catch
+                {
+                    // Non-fatal, do not fail the scan itself if writing cache fails
+                }
             }
         }
         catch (OperationCanceledException)
         {
-            // Scanning cancelled
-            ScanProgressText = _localizationService["ScanCancelledMessage"];
-            ApplyFilter();
-            if (_allAssets.Count == 0)
+            await RunOnUiAsync(() =>
             {
-                IsEmptyState = true;
-            }
+                ScanProgressText = _localizationService["ScanProgressCancelled"];
+                if (_allAssets.Count == 0)
+                {
+                    IsEmptyState = true;
+                }
+            });
         }
         catch (Exception ex)
         {
-            ErrorMessage = string.Format(_localizationService["ScanFailedMessage"], ex.Message);
-            IsEmptyState = _allAssets.Count == 0;
-            ScanProgressText = string.Empty;
+            await RunOnUiAsync(() =>
+            {
+                ErrorMessage = string.Format(_localizationService["ScanFailedMessage"], ex.Message);
+                IsEmptyState = _allAssets.Count == 0;
+                ScanProgressText = string.Empty;
+            });
         }
         finally
         {
-            IsScanning = false;
+            await RunOnUiAsync(() => IsScanning = false);
         }
     }
 
@@ -648,6 +905,146 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             ExportErrorMessage = string.Format(_localizationService["ExportFailFormat"], ex.Message);
         }
+    }
+
+    private Task RunOnUiAsync(Action action)
+    {
+        if (_uiDispatcher.CheckAccess())
+        {
+            action();
+            return Task.CompletedTask;
+        }
+
+        return _uiDispatcher.InvokeAsync(action);
+    }
+
+    private string? _previousUnsupportedSummary;
+
+    private int CountUnsupportedO3dFiles()
+    {
+        int count = 0;
+        foreach (var asset in _allAssets)
+        {
+            if (asset.ModelReferences != null)
+            {
+                foreach (var modelRef in asset.ModelReferences)
+                {
+                    if (modelRef.IsUnsupportedVersion)
+                    {
+                        count++;
+                    }
+                }
+            }
+        }
+        return count;
+    }
+
+    private void UpdateUnsupportedO3dWarningSummary()
+    {
+        int count = CountUnsupportedO3dFiles();
+        if (count > 0)
+        {
+            string summary = string.Format(_localizationService["O3dMetadataLoadFailedSummary"], count);
+            if (_previousUnsupportedSummary != null)
+            {
+                int index = ScanWarnings.IndexOf(_previousUnsupportedSummary);
+                if (index >= 0)
+                {
+                    ScanWarnings[index] = summary;
+                }
+                else
+                {
+                    ScanWarnings.Add(summary);
+                }
+            }
+            else
+            {
+                ScanWarnings.Add(summary);
+            }
+            _previousUnsupportedSummary = summary;
+        }
+        else
+        {
+            if (_previousUnsupportedSummary != null)
+            {
+                ScanWarnings.Remove(_previousUnsupportedSummary);
+                _previousUnsupportedSummary = null;
+            }
+        }
+        WarningCount = ScanWarnings.Count;
+    }
+
+    private void AddAssetToGroupsIncrementally(OmsiAsset asset)
+    {
+        string groupName;
+        if (GroupingMode == AssetGroupingMode.Folder)
+        {
+            var normalizedPath = asset.RelativePath.Replace('\\', '/');
+            var idx = normalizedPath.IndexOf('/');
+            groupName = idx == -1 ? "(Root)" : normalizedPath.Substring(0, idx);
+        }
+        else
+        {
+            groupName = asset.Groups != null && asset.Groups.Count > 0 ? asset.Groups[0] : "(Ungrouped)";
+        }
+
+        var existingGroup = AssetGroups.FirstOrDefault(g => g.Name.Equals(groupName, StringComparison.OrdinalIgnoreCase));
+        if (existingGroup != null)
+        {
+            existingGroup.Assets.Add(asset);
+        }
+        else
+        {
+            var newGroup = new AssetGroupViewModel { Name = groupName };
+            newGroup.Assets.Add(asset);
+
+            int insertIndex = 0;
+            for (int i = 0; i < AssetGroups.Count; i++)
+            {
+                if (CompareGroupNames(groupName, AssetGroups[i].Name) > 0)
+                {
+                    insertIndex = i + 1;
+                }
+                else
+                {
+                    break;
+                }
+            }
+            AssetGroups.Insert(insertIndex, newGroup);
+        }
+    }
+
+    private int CompareGroupNames(string a, string b)
+    {
+        string GetSortKey(string s)
+        {
+            if (s == "(Root)" || s == "(Ungrouped)") return string.Empty;
+            return s;
+        }
+        return string.Compare(GetSortKey(a), GetSortKey(b), StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static bool IsTestMode { get; set; }
+
+    private static bool IsTestEnvironment()
+    {
+        try
+        {
+            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            foreach (var assembly in assemblies)
+            {
+                var name = assembly.GetName().Name;
+                if (name != null && (name.Contains("test", StringComparison.OrdinalIgnoreCase) || name.Contains("xunit", StringComparison.OrdinalIgnoreCase)))
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+            // Fallback
+        }
+        return false;
     }
 }
 

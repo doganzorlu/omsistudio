@@ -45,6 +45,7 @@ public class LocalizationService : ILocalizationService
             ["O3dNoMetadata"] = "O3D metadatası bulunmuyor",
             ["O3dDiagnostics"] = "Hatalar ve Uyarılar",
             ["TexturesSection"] = "İlişkili Kaplama Dosyaları (Texture)",
+            ["ScoTextureSource"] = "SCO dosyası",
             ["NoTextures"] = "Bu .sco dosyasında kaplama referansı bulunmuyor.",
             ["NoSelectionTitle"] = "Seçili Nesne Yok",
             ["NoSelectionMessage"] = "Özelliklerini görüntülemek için listeden bir varlık seçin.",
@@ -60,12 +61,18 @@ public class LocalizationService : ILocalizationService
             ["FullPathLabel"] = "Tam Yol",
             ["NoFolderSelected"] = "(OMSI klasörü seçilmedi)",
             ["CancelScan"] = "Taramayı İptal Et",
+            ["RefreshScan"] = "Taramayı Yenile",
             ["ScanProgressFormat"] = "Taranan: {0} nesne | Son dosya: {1}",
             ["ScanCancelledMessage"] = "Tarama kullanıcı tarafından iptal edildi.",
             ["ExportManifest"] = "Manifest Dışa Aktar",
             ["ExportSuccessFormat"] = "Manifest başarıyla dışa aktarıldı: {0}",
             ["ExportFailFormat"] = "Manifest dışa aktarma başarısız: {0}",
-            ["ExportFolderPickFail"] = "Çıktı klasörü seçilemedi: {0}"
+            ["ExportFolderPickFail"] = "Çıktı klasörü seçilemedi: {0}",
+            ["O3dUnsupportedHeaderSuffix"] = " (Desteklenmeyen model başlığı)",
+            ["ScanProgressActiveFormat"] = "Tarama devam ediyor... {0} nesne",
+            ["ScanProgressCancelled"] = "Tarama iptal edildi",
+            ["ScanProgressCompletedFormat"] = "Tarama tamamlandı: {0} nesne",
+            ["O3dMetadataLoadFailedSummary"] = "{0} O3D dosyasında metadata okunamadı."
         },
         ["en-US"] = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -101,6 +108,7 @@ public class LocalizationService : ILocalizationService
             ["O3dNoMetadata"] = "No O3D metadata available",
             ["O3dDiagnostics"] = "Errors and Warnings",
             ["TexturesSection"] = "Associated Textures",
+            ["ScoTextureSource"] = "SCO file",
             ["NoTextures"] = "No textures referenced in this .sco file.",
             ["NoSelectionTitle"] = "No Object Selected",
             ["NoSelectionMessage"] = "Select an asset from the list to view its properties.",
@@ -116,12 +124,18 @@ public class LocalizationService : ILocalizationService
             ["FullPathLabel"] = "Full Path",
             ["NoFolderSelected"] = "(No folder selected)",
             ["CancelScan"] = "Cancel Scan",
+            ["RefreshScan"] = "Refresh Scan",
             ["ScanProgressFormat"] = "Scanned: {0} objects | Current: {1}",
             ["ScanCancelledMessage"] = "Scanning was cancelled by the user.",
             ["ExportManifest"] = "Export Manifest",
             ["ExportSuccessFormat"] = "Manifest exported successfully: {0}",
             ["ExportFailFormat"] = "Manifest export failed: {0}",
-            ["ExportFolderPickFail"] = "Failed to select output folder: {0}"
+            ["ExportFolderPickFail"] = "Failed to select output folder: {0}",
+            ["O3dUnsupportedHeaderSuffix"] = " (Unsupported model header)",
+            ["ScanProgressActiveFormat"] = "Scanning in progress... {0} objects",
+            ["ScanProgressCancelled"] = "Scanning was cancelled",
+            ["ScanProgressCompletedFormat"] = "Scanning completed: {0} objects",
+            ["O3dMetadataLoadFailedSummary"] = "Could not read metadata for {0} O3D files."
         }
     };
 

@@ -101,8 +101,409 @@ public class O3dMetadataReader : IO3dMetadataReader
             ushort firstWord = reader.ReadUInt16();
 
             cancellationToken.ThrowIfCancellationRequested();
-            // Check encrypted magic 'ENCR' (E=0x45, N=0x4E -> 0x4E45. C=0x43, R=0x52 -> 0x5243)
-            if (firstWord == 0x4E45)
+
+            const int MaxVertices = 1_000_000;
+            const int MaxTriangles = 1_000_000;
+            const int MaxMeshes = 100_000;
+            const int MaxMaterials = 100_000;
+            const int MaxStringLength = 1024;
+
+            if (firstWord == 0x1984)
+            {
+                if (reader.RemainingBytes < 1)
+                {
+                    return new O3dMetadataReadResult
+                    {
+                        Status = O3dMetadataStatus.Invalid,
+                        Diagnostics = new List<O3dDiagnostic>
+                        {
+                            new()
+                            {
+                                Severity = O3dDiagnosticSeverity.Error,
+                                Code = O3dDiagnosticCode.TruncatedStream,
+                                Message = "O3D stream ended before version byte could be read.",
+                                ByteOffset = reader.Position
+                            }
+                        }
+                    };
+                }
+                byte version = reader.ReadByte();
+                bool lHeader = version > 3;
+                bool isEncrypted = false;
+                byte options = 0;
+
+                if (lHeader)
+                {
+                    if (reader.RemainingBytes < 5)
+                    {
+                        return new O3dMetadataReadResult
+                        {
+                            Status = O3dMetadataStatus.Invalid,
+                            Diagnostics = new List<O3dDiagnostic>
+                            {
+                                new()
+                                {
+                                    Severity = O3dDiagnosticSeverity.Error,
+                                    Code = O3dDiagnosticCode.TruncatedStream,
+                                    Message = "O3D stream ended before extended header could be read.",
+                                    ByteOffset = reader.Position
+                                }
+                            }
+                        };
+                    }
+                    options = reader.ReadByte();
+                    uint encryptionKey = reader.ReadUInt32();
+                    if (encryptionKey != 0xffffffff)
+                    {
+                        isEncrypted = true;
+                    }
+                }
+
+                if (isEncrypted)
+                {
+                    return new O3dMetadataReadResult
+                    {
+                        Status = O3dMetadataStatus.Encrypted,
+                        Metadata = new O3dMetadata
+                        {
+                            Version = O3dFormatVersion.Unknown,
+                            RawVersion = version,
+                            IsEncrypted = true
+                        },
+                        Diagnostics = new List<O3dDiagnostic>
+                        {
+                            new()
+                            {
+                                Severity = O3dDiagnosticSeverity.Warning,
+                                Code = O3dDiagnosticCode.EncryptedFile,
+                                Message = "O3D file encryption detected.",
+                                ByteOffset = 0
+                            }
+                        }
+                    };
+                }
+
+                uint vertexCount = 0;
+                uint triangleCount = 0;
+                uint materialCount = 0;
+                var textureReferences = new List<O3dTextureReference>();
+
+                while (reader.RemainingBytes > 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    byte section = reader.ReadByte();
+                    if (section == 0x17) // Vertex list
+                    {
+                        uint count = lHeader ? reader.ReadUInt32() : reader.ReadUInt16();
+                        if (count > MaxVertices)
+                        {
+                            return new O3dMetadataReadResult
+                            {
+                                Status = O3dMetadataStatus.Invalid,
+                                Diagnostics = new List<O3dDiagnostic>
+                                {
+                                    new()
+                                    {
+                                        Severity = O3dDiagnosticSeverity.Error,
+                                        Code = O3dDiagnosticCode.SafetyLimitExceeded,
+                                        Message = $"O3D vertex count exceeded safety limit: {count}.",
+                                        ByteOffset = reader.Position
+                                    }
+                                }
+                            };
+                        }
+                        vertexCount = count;
+                        long bytesToSkip = (long)count * 32;
+                        if (bytesToSkip > reader.RemainingBytes)
+                        {
+                            return new O3dMetadataReadResult
+                            {
+                                Status = O3dMetadataStatus.Invalid,
+                                Diagnostics = new List<O3dDiagnostic>
+                                {
+                                    new()
+                                    {
+                                        Severity = O3dDiagnosticSeverity.Error,
+                                        Code = O3dDiagnosticCode.TruncatedStream,
+                                        Message = "Truncated stream in vertex section.",
+                                        ByteOffset = reader.Position
+                                    }
+                                }
+                            };
+                        }
+                        reader.Skip(bytesToSkip);
+                    }
+                    else if (section == 0x49) // Triangle list
+                    {
+                        uint count = lHeader ? reader.ReadUInt32() : reader.ReadUInt16();
+                        if (count > MaxTriangles)
+                        {
+                            return new O3dMetadataReadResult
+                            {
+                                Status = O3dMetadataStatus.Invalid,
+                                Diagnostics = new List<O3dDiagnostic>
+                                {
+                                    new()
+                                    {
+                                        Severity = O3dDiagnosticSeverity.Error,
+                                        Code = O3dDiagnosticCode.SafetyLimitExceeded,
+                                        Message = $"O3D triangle count exceeded safety limit: {count}.",
+                                        ByteOffset = reader.Position
+                                    }
+                                }
+                            };
+                        }
+                        triangleCount = count;
+                        int recordSize = (lHeader && ((options & 1) == 1)) ? 14 : 8;
+                        long bytesToSkip = (long)count * recordSize;
+                        if (bytesToSkip > reader.RemainingBytes)
+                        {
+                            return new O3dMetadataReadResult
+                            {
+                                Status = O3dMetadataStatus.Invalid,
+                                Diagnostics = new List<O3dDiagnostic>
+                                {
+                                    new()
+                                    {
+                                        Severity = O3dDiagnosticSeverity.Error,
+                                        Code = O3dDiagnosticCode.TruncatedStream,
+                                        Message = "Truncated stream in triangle section.",
+                                        ByteOffset = reader.Position
+                                    }
+                                }
+                            };
+                        }
+                        reader.Skip(bytesToSkip);
+                    }
+                    else if (section == 0x26) // Material list
+                    {
+                        if (reader.RemainingBytes < 2)
+                        {
+                            return new O3dMetadataReadResult
+                            {
+                                Status = O3dMetadataStatus.Invalid,
+                                Diagnostics = new List<O3dDiagnostic>
+                                {
+                                    new()
+                                    {
+                                        Severity = O3dDiagnosticSeverity.Error,
+                                        Code = O3dDiagnosticCode.TruncatedStream,
+                                        Message = "Truncated stream while reading material count.",
+                                        ByteOffset = reader.Position
+                                    }
+                                }
+                            };
+                        }
+                        ushort count = reader.ReadUInt16();
+                        if ((int)count > MaxMaterials)
+                        {
+                            return new O3dMetadataReadResult
+                            {
+                                Status = O3dMetadataStatus.Invalid,
+                                Diagnostics = new List<O3dDiagnostic>
+                                {
+                                    new()
+                                    {
+                                        Severity = O3dDiagnosticSeverity.Error,
+                                        Code = O3dDiagnosticCode.SafetyLimitExceeded,
+                                        Message = $"O3D material count exceeded safety limit: {count}.",
+                                        ByteOffset = reader.Position
+                                    }
+                                }
+                            };
+                        }
+                        materialCount = count;
+                        for (int i = 0; i < count; i++)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            if (reader.RemainingBytes < 45)
+                            {
+                                return new O3dMetadataReadResult
+                                {
+                                    Status = O3dMetadataStatus.Invalid,
+                                    Diagnostics = new List<O3dDiagnostic>
+                                    {
+                                        new()
+                                        {
+                                            Severity = O3dDiagnosticSeverity.Error,
+                                            Code = O3dDiagnosticCode.TruncatedStream,
+                                            Message = $"Truncated stream in material list at index {i}.",
+                                            ByteOffset = reader.Position
+                                        }
+                                    }
+                                };
+                            }
+                            reader.Skip(44);
+                            byte stringLenByte = reader.ReadByte();
+                            if (stringLenByte > 0)
+                            {
+                                if ((int)stringLenByte > MaxStringLength)
+                                {
+                                    return new O3dMetadataReadResult
+                                    {
+                                        Status = O3dMetadataStatus.Invalid,
+                                        Diagnostics = new List<O3dDiagnostic>
+                                        {
+                                            new()
+                                            {
+                                                Severity = O3dDiagnosticSeverity.Error,
+                                                Code = O3dDiagnosticCode.StringLengthExceeded,
+                                                Message = $"String length ({stringLenByte}) exceeds maximum allowed limit ({MaxStringLength}) for material texture {i}.",
+                                                ByteOffset = reader.Position
+                                            }
+                                        }
+                                    };
+                                }
+                                if (stringLenByte > reader.RemainingBytes)
+                                {
+                                    return new O3dMetadataReadResult
+                                    {
+                                        Status = O3dMetadataStatus.Invalid,
+                                        Diagnostics = new List<O3dDiagnostic>
+                                        {
+                                            new()
+                                            {
+                                                Severity = O3dDiagnosticSeverity.Error,
+                                                Code = O3dDiagnosticCode.InvalidStringBounds,
+                                                Message = $"String length ({stringLenByte}) exceeds remaining stream bytes.",
+                                                ByteOffset = reader.Position
+                                            }
+                                        }
+                                    };
+                                }
+                                string path = reader.ReadBoundedString(stringLenByte, MaxStringLength, System.Text.Encoding.ASCII);
+                                if (!string.IsNullOrWhiteSpace(path))
+                                {
+                                    textureReferences.Add(new O3dTextureReference { Path = path });
+                                }
+                            }
+                        }
+                    }
+                    else if (section == 0x54) // Bone list
+                    {
+                        uint count = lHeader ? reader.ReadUInt32() : reader.ReadUInt16();
+                        for (int i = 0; i < count; i++)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            if (reader.RemainingBytes < 1)
+                            {
+                                return new O3dMetadataReadResult
+                                {
+                                    Status = O3dMetadataStatus.Invalid,
+                                    Diagnostics = new List<O3dDiagnostic>
+                                    {
+                                        new()
+                                        {
+                                            Severity = O3dDiagnosticSeverity.Error,
+                                            Code = O3dDiagnosticCode.TruncatedStream,
+                                            Message = "Truncated stream in bone list.",
+                                            ByteOffset = reader.Position
+                                        }
+                                    }
+                                };
+                            }
+                            byte nameLen = reader.ReadByte();
+                            if (nameLen > reader.RemainingBytes)
+                            {
+                                return new O3dMetadataReadResult
+                                {
+                                    Status = O3dMetadataStatus.Invalid,
+                                    Diagnostics = new List<O3dDiagnostic>
+                                    {
+                                        new()
+                                        {
+                                            Severity = O3dDiagnosticSeverity.Error,
+                                            Code = O3dDiagnosticCode.TruncatedStream,
+                                            Message = "Truncated stream in bone name.",
+                                            ByteOffset = reader.Position
+                                        }
+                                    }
+                                };
+                            }
+                            reader.Skip(nameLen);
+                            if (reader.RemainingBytes < 2)
+                            {
+                                return new O3dMetadataReadResult
+                                {
+                                    Status = O3dMetadataStatus.Invalid,
+                                    Diagnostics = new List<O3dDiagnostic>
+                                    {
+                                        new()
+                                        {
+                                            Severity = O3dDiagnosticSeverity.Error,
+                                            Code = O3dDiagnosticCode.TruncatedStream,
+                                            Message = "Truncated stream in bone weights count.",
+                                            ByteOffset = reader.Position
+                                        }
+                                    }
+                                };
+                            }
+                            ushort nWeights = reader.ReadUInt16();
+                            long weightsBytes = (long)nWeights * 6;
+                            if (weightsBytes > reader.RemainingBytes)
+                            {
+                                return new O3dMetadataReadResult
+                                {
+                                    Status = O3dMetadataStatus.Invalid,
+                                    Diagnostics = new List<O3dDiagnostic>
+                                    {
+                                        new()
+                                        {
+                                            Severity = O3dDiagnosticSeverity.Error,
+                                            Code = O3dDiagnosticCode.TruncatedStream,
+                                            Message = "Truncated stream in bone weights.",
+                                            ByteOffset = reader.Position
+                                        }
+                                    }
+                                };
+                            }
+                            reader.Skip(weightsBytes);
+                        }
+                    }
+                    else if (section == 0x79) // Transform
+                    {
+                        if (reader.RemainingBytes < 64)
+                        {
+                            return new O3dMetadataReadResult
+                            {
+                                Status = O3dMetadataStatus.Invalid,
+                                Diagnostics = new List<O3dDiagnostic>
+                                {
+                                    new()
+                                    {
+                                        Severity = O3dDiagnosticSeverity.Error,
+                                        Code = O3dDiagnosticCode.TruncatedStream,
+                                        Message = "Truncated stream in transform matrix.",
+                                        ByteOffset = reader.Position
+                                    }
+                                }
+                            };
+                        }
+                        reader.Skip(64);
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+
+                return new O3dMetadataReadResult
+                {
+                    Status = O3dMetadataStatus.Success,
+                    Metadata = new O3dMetadata
+                    {
+                        Version = lHeader ? O3dFormatVersion.Version3 : O3dFormatVersion.Legacy,
+                        RawVersion = version,
+                        IsEncrypted = false,
+                        MeshCount = 1,
+                        VertexCount = (int)vertexCount,
+                        TriangleCount = (int)triangleCount,
+                        MaterialCount = (int)materialCount,
+                        TextureReferences = textureReferences
+                    }
+                };
+            }
+            else if (firstWord == 0x4E45)
             {
                 if (reader.RemainingBytes >= 2)
                 {
@@ -115,6 +516,7 @@ public class O3dMetadataReader : IO3dMetadataReader
                             Metadata = new O3dMetadata
                             {
                                 Version = O3dFormatVersion.Unknown,
+                                RawVersion = 0,
                                 IsEncrypted = true
                             },
                             Diagnostics = new List<O3dDiagnostic>
@@ -131,12 +533,6 @@ public class O3dMetadataReader : IO3dMetadataReader
                     }
                 }
             }
-
-            const int MaxVertices = 1_000_000;
-            const int MaxTriangles = 1_000_000;
-            const int MaxMeshes = 100_000;
-            const int MaxMaterials = 100_000;
-            const int MaxStringLength = 1024;
 
             cancellationToken.ThrowIfCancellationRequested();
             if (firstWord == 1 || firstWord == 2)
@@ -254,6 +650,7 @@ public class O3dMetadataReader : IO3dMetadataReader
                     Metadata = new O3dMetadata
                     {
                         Version = O3dFormatVersion.Legacy,
+                        RawVersion = firstWord,
                         IsEncrypted = false,
                         MeshCount = meshCount,
                         VertexCount = vertexCount,
@@ -295,7 +692,7 @@ public class O3dMetadataReader : IO3dMetadataReader
                         {
                             new()
                             {
-                                Severity = O3dDiagnosticSeverity.Error,
+                                Severity = O3dDiagnosticSeverity.Warning,
                                 Code = O3dDiagnosticCode.UnsupportedVersion,
                                 Message = $"Unsupported version header pattern: Word1={firstWord}, Word2={secondWord}",
                                 ByteOffset = 0
@@ -417,6 +814,7 @@ public class O3dMetadataReader : IO3dMetadataReader
                     Metadata = new O3dMetadata
                     {
                         Version = formatVersion,
+                        RawVersion = firstWord,
                         IsEncrypted = false,
                         MeshCount = (int)meshCount,
                         VertexCount = (int)vertexCount,
@@ -435,7 +833,7 @@ public class O3dMetadataReader : IO3dMetadataReader
                 {
                     new()
                     {
-                        Severity = O3dDiagnosticSeverity.Error,
+                        Severity = O3dDiagnosticSeverity.Warning,
                         Code = O3dDiagnosticCode.UnsupportedVersion,
                         Message = $"Unsupported or unrecognized O3D format version: {firstWord}.",
                         ByteOffset = 0

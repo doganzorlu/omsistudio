@@ -72,7 +72,7 @@ public class OmsiModelReferenceTests
         };
         var diagnostics = new List<O3dDiagnostic>
         {
-            new() { Severity = O3dDiagnosticSeverity.Warning, Code = O3dDiagnosticCode.SafetyLimitExceeded, Message = "Test warning" }
+            new() { Severity = O3dDiagnosticSeverity.Error, Code = O3dDiagnosticCode.SafetyLimitExceeded, Message = "Test warning" }
         };
 
         // Act

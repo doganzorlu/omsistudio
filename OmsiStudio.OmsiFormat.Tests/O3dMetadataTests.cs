@@ -25,6 +25,7 @@ public class O3dMetadataTests
         var metadata = new O3dMetadata
         {
             Version = O3dFormatVersion.Version3,
+            RawVersion = 7,
             IsEncrypted = false,
             MeshCount = 1,
             VertexCount = 120,
@@ -39,6 +40,8 @@ public class O3dMetadataTests
 
         // Assert
         Assert.Equal(O3dFormatVersion.Version3, metadata.Version);
+        Assert.Equal(7, metadata.RawVersion);
+        Assert.Equal("7", metadata.DisplayVersion);
         Assert.False(metadata.IsEncrypted);
         Assert.Equal(1, metadata.MeshCount);
         Assert.Equal(120, metadata.VertexCount);
@@ -76,6 +79,7 @@ public class O3dMetadataTests
         // Assert
         Assert.NotNull(result.Metadata);
         Assert.Equal(O3dFormatVersion.Legacy, result.Metadata.Version);
+        Assert.Equal("Legacy", result.Metadata.DisplayVersion);
         Assert.True(result.Metadata.IsEncrypted);
         Assert.Equal(O3dMetadataStatus.Encrypted, result.Status);
         Assert.Equal(2, result.Diagnostics.Count);

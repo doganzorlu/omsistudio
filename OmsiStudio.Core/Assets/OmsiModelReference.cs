@@ -38,7 +38,12 @@ public sealed class OmsiModelReference
     /// <summary>
     /// Gets a value indicating whether there are metadata diagnostics.
     /// </summary>
-    public bool HasMetadataDiagnostics => MetadataDiagnostics.Count > 0;
+    public bool HasMetadataDiagnostics => MetadataDiagnostics.Count > 0 && MetadataDiagnostics.Any(d => d.Severity == O3dDiagnosticSeverity.Error);
+
+    /// <summary>
+    /// Gets a value indicating whether the model format version is unsupported.
+    /// </summary>
+    public bool IsUnsupportedVersion => MetadataStatus == O3dMetadataStatus.Unsupported;
 
     public OmsiModelReference()
     {
