@@ -35,12 +35,16 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(RootDirectoryDisplay))]
     [NotifyCanExecuteChangedFor(nameof(RefreshScanCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ClearCacheAndRefreshCommand))]
     private string? _rootDirectory;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowNoSelectionPrompt))]
     [NotifyPropertyChangedFor(nameof(ShowCancellationBanner))]
     [NotifyPropertyChangedFor(nameof(ShowTopScanSummary))]
+    [NotifyCanExecuteChangedFor(nameof(RefreshScanCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ClearCacheAndRefreshCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SelectFolderCommand))]
     private bool _isScanning;
 
     [ObservableProperty]
@@ -255,7 +259,11 @@ public partial class MainWindowViewModel : ViewModelBase
         _uiDispatcher = new InlineUiDispatcher();
         _scanCacheService = new JsonScanCacheService();
 
-        _localizationService.CultureChanged += (s, e) => OnPropertyChanged(string.Empty);
+        _localizationService.CultureChanged += (s, e) =>
+        {
+            UpdateScanProgressText();
+            OnPropertyChanged(string.Empty);
+        };
     }
 
     public MainWindowViewModel(IOmsiAssetScanner scanner) 
@@ -309,7 +317,11 @@ public partial class MainWindowViewModel : ViewModelBase
         _uiDispatcher = uiDispatcher ?? new InlineUiDispatcher();
         _scanCacheService = scanCacheService ?? new JsonScanCacheService();
 
-        _localizationService.CultureChanged += (s, e) => OnPropertyChanged(string.Empty);
+        _localizationService.CultureChanged += (s, e) =>
+        {
+            UpdateScanProgressText();
+            OnPropertyChanged(string.Empty);
+        };
     }
 
     public async Task LoadSettingsAsync(CancellationToken cancellationToken = default)
@@ -357,7 +369,9 @@ public partial class MainWindowViewModel : ViewModelBase
         _scanCts?.Cancel();
     }
 
-    [RelayCommand]
+    public bool CanSelectFolder => !IsScanning;
+
+    [RelayCommand(CanExecute = nameof(CanSelectFolder))]
     private async Task SelectFolderAsync()
     {
         var folderPath = await _folderPickerService.PickFolderAsync();
@@ -397,13 +411,30 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    public bool CanRefreshScan => !string.IsNullOrWhiteSpace(RootDirectory);
+    public bool CanRefreshScan => !string.IsNullOrWhiteSpace(RootDirectory) && !IsScanning;
 
     [RelayCommand(CanExecute = nameof(CanRefreshScan))]
     private async Task RefreshScanAsync()
     {
         if (CanRefreshScan)
         {
+            await StartScanAsync(RootDirectory!);
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanRefreshScan))]
+    private async Task ClearCacheAndRefreshAsync()
+    {
+        if (CanRefreshScan)
+        {
+            try
+            {
+                await _scanCacheService.DeleteAsync(RootDirectory!);
+            }
+            catch
+            {
+                // Non-fatal
+            }
             await StartScanAsync(RootDirectory!);
         }
     }
@@ -448,7 +479,10 @@ public partial class MainWindowViewModel : ViewModelBase
 
         UpdateUnsupportedO3dWarningSummary();
 
-        ScanProgressText = string.Format(_localizationService["ScanProgressCompletedFormat"], _allAssets.Count);
+        _currentScanStatusState = ScanStatusState.LoadedFromCache;
+        _statusAssetCount = _allAssets.Count;
+        _statusCacheTime = entry.CachedAtUtc;
+        UpdateScanProgressText();
     }
 
     [RelayCommand]
@@ -480,7 +514,9 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedAsset = null;
         HasAssets = false;
 
-        ScanProgressText = _localizationService["ScanningMessage"];
+        _currentScanStatusState = ScanStatusState.Scanning;
+        _statusAssetCount = 0;
+        UpdateScanProgressText();
 
         ScanWarnings.Clear();
         ScanErrors.Clear();
@@ -514,7 +550,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
                         if (!string.IsNullOrEmpty(p.CurrentFilePath))
                         {
-                            ScanProgressText = string.Format(_localizationService["ScanProgressActiveFormat"], p.ParsedAssetCount);
+                            _currentScanStatusState = ScanStatusState.Scanning;
+                            _statusAssetCount = p.ParsedAssetCount;
+                            UpdateScanProgressText();
                         }
 
                         if (p.NewAsset != null && !_allAssets.Contains(p.NewAsset))
@@ -604,11 +642,14 @@ public partial class MainWindowViewModel : ViewModelBase
 
                     if (token.IsCancellationRequested)
                     {
-                        ScanProgressText = _localizationService["ScanProgressCancelled"];
+                        _currentScanStatusState = ScanStatusState.Cancelled;
+                        UpdateScanProgressText();
                     }
                     else
                     {
-                        ScanProgressText = string.Format(_localizationService["ScanProgressCompletedFormat"], _allAssets.Count);
+                        _currentScanStatusState = ScanStatusState.Completed;
+                        _statusAssetCount = _allAssets.Count;
+                        UpdateScanProgressText();
 
                         bool hasFatalError = result.Errors.Any(e => e != null && e.Contains("fatal error", StringComparison.OrdinalIgnoreCase));
                         if (!hasFatalError)
@@ -647,7 +688,8 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             await RunOnUiAsync(() =>
             {
-                ScanProgressText = _localizationService["ScanProgressCancelled"];
+                _currentScanStatusState = ScanStatusState.Cancelled;
+                UpdateScanProgressText();
                 if (_allAssets.Count == 0)
                 {
                     IsEmptyState = true;
@@ -660,7 +702,8 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 ErrorMessage = string.Format(_localizationService["ScanFailedMessage"], ex.Message);
                 IsEmptyState = _allAssets.Count == 0;
-                ScanProgressText = string.Empty;
+                _currentScanStatusState = ScanStatusState.Idle;
+                UpdateScanProgressText();
             });
         }
         finally
@@ -1017,6 +1060,56 @@ public partial class MainWindowViewModel : ViewModelBase
                 }
             }
             AssetGroups.Insert(insertIndex, newGroup);
+        }
+    }
+
+    private enum ScanStatusState
+    {
+        Idle,
+        Scanning,
+        Cancelled,
+        Completed,
+        LoadedFromCache
+    }
+
+    private ScanStatusState _currentScanStatusState = ScanStatusState.Idle;
+    private int _statusAssetCount;
+    private DateTime _statusCacheTime;
+
+    private void UpdateScanProgressText()
+    {
+        switch (_currentScanStatusState)
+        {
+            case ScanStatusState.Scanning:
+                ScanProgressText = string.Format(_localizationService["ScanProgressActiveFormat"], _statusAssetCount);
+                break;
+            case ScanStatusState.Cancelled:
+                ScanProgressText = _localizationService["ScanProgressCancelled"];
+                break;
+            case ScanStatusState.Completed:
+                ScanProgressText = string.Format(_localizationService["ScanProgressCompletedFormat"], _statusAssetCount);
+                break;
+            case ScanStatusState.LoadedFromCache:
+                if (_statusCacheTime != DateTime.MinValue && _statusCacheTime != default)
+                {
+                    var timeStr = _statusCacheTime.ToLocalTime().ToString("g");
+                    ScanProgressText = string.Format(_localizationService["LoadedFromCacheFormat"], _statusAssetCount, timeStr);
+                }
+                else
+                {
+                    ScanProgressText = string.Format(_localizationService["LoadedFromCacheShortFormat"], _statusAssetCount);
+                }
+                break;
+            default:
+                if (IsScanning)
+                {
+                    ScanProgressText = _localizationService["ScanningMessage"];
+                }
+                else
+                {
+                    ScanProgressText = string.Empty;
+                }
+                break;
         }
     }
 

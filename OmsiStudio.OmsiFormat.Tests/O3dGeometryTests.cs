@@ -195,12 +195,18 @@ public class O3dGeometryTests
         var expectedSizes = new Dictionary<string, long>
         {
             { "minimal_valid_geometry.o3d", 139 },
-            { "multi_triangle_geometry.o3d", 175 },
+            { "multi_triangle_geometry.o3d", 179 },
             { "invalid_index_geometry.o3d", 139 },
             { "truncated_vertex_block.o3d", 67 },
             { "truncated_face_block.o3d", 131 },
             { "excessive_geometry_counts.o3d", 35 },
-            { "material_slot_geometry.o3d", 156 }
+            { "material_slot_geometry.o3d", 156 },
+            { "long_index_geometry.o3d", 145 },
+            { "truncated_long_face_block.o3d", 131 },
+            { "invalid_long_index_geometry.o3d", 145 },
+            { "invalid_material_index_geometry.o3d", 139 },
+            { "excessive_string_length_geometry.o3d", 24 },
+            { "truncated_material_string_geometry.o3d", 24 }
         };
 
         foreach (var pair in expectedSizes)
@@ -211,7 +217,9 @@ public class O3dGeometryTests
             Assert.Equal(pair.Value, fileInfo.Length);
             
             // Intentionally truncated/excessive fixtures should remain small in file size
-            if (pair.Key == "truncated_vertex_block.o3d" || pair.Key == "truncated_face_block.o3d" || pair.Key == "excessive_geometry_counts.o3d")
+            if (pair.Key == "truncated_vertex_block.o3d" || pair.Key == "truncated_face_block.o3d" || 
+                pair.Key == "truncated_long_face_block.o3d" || pair.Key == "excessive_geometry_counts.o3d" ||
+                pair.Key == "excessive_string_length_geometry.o3d" || pair.Key == "truncated_material_string_geometry.o3d")
             {
                 Assert.True(fileInfo.Length < 200, $"{pair.Key} should remain small.");
             }

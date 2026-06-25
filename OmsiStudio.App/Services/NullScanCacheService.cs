@@ -14,4 +14,9 @@ public sealed class NullScanCacheService : IScanCacheService
     {
         return Task.CompletedTask;
     }
+
+    public Task DeleteAsync(string rootDirectory, CancellationToken cancellationToken = default)
+    {
+        return Task.CompletedTask;
+    }
 }

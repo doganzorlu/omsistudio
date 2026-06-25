@@ -87,4 +87,21 @@ public sealed class JsonScanCacheService : IScanCacheService
             // Do not crash
         }
     }
+
+    public Task DeleteAsync(string rootDirectory, CancellationToken cancellationToken = default)
+    {
+        var path = GetCacheFilePath(rootDirectory);
+        if (!string.IsNullOrEmpty(path) && File.Exists(path))
+        {
+            try
+            {
+                File.Delete(path);
+            }
+            catch
+            {
+                // Do not crash
+            }
+        }
+        return Task.CompletedTask;
+    }
 }

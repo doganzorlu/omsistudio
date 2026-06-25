@@ -72,7 +72,10 @@ public class LocalizationService : ILocalizationService
             ["ScanProgressActiveFormat"] = "Tarama devam ediyor... {0} nesne",
             ["ScanProgressCancelled"] = "Tarama iptal edildi",
             ["ScanProgressCompletedFormat"] = "Tarama tamamlandı: {0} nesne",
-            ["O3dMetadataLoadFailedSummary"] = "{0} O3D dosyasında metadata okunamadı."
+            ["O3dMetadataLoadFailedSummary"] = "{0} O3D dosyasında metadata okunamadı.",
+            ["LoadedFromCacheFormat"] = "Önbellekten yüklendi: {0} nesne (Son tarama: {1})",
+            ["LoadedFromCacheShortFormat"] = "Önbellekten yüklendi: {0} nesne",
+            ["ClearCacheAndRescan"] = "Önbelleği Temizle ve Yeniden Tara"
         },
         ["en-US"] = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -135,7 +138,10 @@ public class LocalizationService : ILocalizationService
             ["ScanProgressActiveFormat"] = "Scanning in progress... {0} objects",
             ["ScanProgressCancelled"] = "Scanning was cancelled",
             ["ScanProgressCompletedFormat"] = "Scanning completed: {0} objects",
-            ["O3dMetadataLoadFailedSummary"] = "Could not read metadata for {0} O3D files."
+            ["O3dMetadataLoadFailedSummary"] = "Could not read metadata for {0} O3D files.",
+            ["LoadedFromCacheFormat"] = "Loaded from cache: {0} objects (Last scan: {1})",
+            ["LoadedFromCacheShortFormat"] = "Loaded from cache: {0} objects",
+            ["ClearCacheAndRescan"] = "Clear Cache and Rescan"
         }
     };
 

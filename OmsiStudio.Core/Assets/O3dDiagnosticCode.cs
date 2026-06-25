@@ -53,5 +53,10 @@ public enum O3dDiagnosticCode
     /// <summary>
     /// Allocation safety limits were exceeded based on untrusted counts.
     /// </summary>
-    SafetyLimitExceeded = 9
+    SafetyLimitExceeded = 9,
+
+    /// <summary>
+    /// An out-of-bounds vertex index was found in a triangle face.
+    /// </summary>
+    InvalidIndex = 10
 }

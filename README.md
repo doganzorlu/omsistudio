@@ -65,17 +65,17 @@ Each layer has a corresponding isolated test project to enforce clean dependency
 *   **Encodings**: Gracefully handles Turkish ANSI, windows-1254, and windows-1252 to render characters correctly.
 *   **Model Reference Path Resolution**: Traces mesh name references, mapping them to actual file locations in model folders and marking them resolved/unresolved.
 *   **O3D Metadata Pipeline**: Safely reads `.o3d` files to parse version, encrypted status, header-level counts (meshes, vertices, triangles, materials), and texture references. Displays this metadata details and diagnostics in the UI asset details panel.
+*   **O3D Geometry Pipeline**: Safely parses supported, unencrypted `.o3d` geometry files into internal mesh data (vertices, normals, UVs, triangle indices, and material slot references), with complete DoS count verification, bounds checks (for vertex and material slot indices), and string length safety constraints.
 *   **Dynamic Localization**: The UI language is Turkish by default, switchable dynamically to English in runtime.
 *   **Persistent Settings**: Stores the last successfully scanned root path and active language to a local JSON settings file.
 *   **Manifest-Only Export**: Allows users to select an asset and write a deterministic `[sco_filename]_manifest.json` file summarizing asset metadata to their chosen target output directory.
 
 ---
 
-## 🛑 Intentionally Not Implemented (Future Scope)
+## 🎯 Intentionally Not Implemented (Future Scope)
 
 > [!WARNING]
 > The following features **DO NOT** exist in the codebase yet and are reserved for future development spikes:
-> *   **No O3D Geometry Parsing**: The internal vertex buffers, index buffers, normals, UVs, and mesh geometry of `.o3d` files are not parsed or deserialized.
 > *   **No 3D Rendering / Viewport**: The UI does not display 3D models or render scenery objects.
 > *   **No 3D Model Conversion/Export**: Formats like glTF, OBJ, or FBX conversion and geometry mesh creation are currently unsupported placeholder targets.
 

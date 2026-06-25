@@ -169,6 +169,7 @@ Represents parsed header metadata statistics from an O3D file.
 *   `InvalidStringBounds = 7`: String length exceeds stream remainder size.
 *   `ReadFailed = 8`: Binary stream read error.
 *   `SafetyLimitExceeded = 9`: Allocation sizes exceed safe size thresholds.
+*   `InvalidIndex = 10`: Out-of-bounds vertex index referenced by face.
 
 ### O3dDiagnostic
 
@@ -257,6 +258,17 @@ Represents the complete parsed mesh geometry data of an O3D model.
 *   `MaterialSlots` (IReadOnlyList<O3dMaterialSlot>): Collection of material slots.
 *   `Metadata` (O3dMetadata?): Optional header metadata associated with the mesh.
 
+**Invariants & Safety Rules:**
+*   **Collection Alignment**: If parsing is successful, actual collection counts must match the counts reported in the metadata header:
+    *   `Metadata.VertexCount == Vertices.Count`
+    *   `Metadata.TriangleCount == Triangles.Count`
+    *   `Metadata.MaterialCount == MaterialSlots.Count`
+*   **Index Bounds Validity**: 
+    *   Every triangle vertex index (`V0`, `V1`, `V2`) must satisfy `0 <= index < Vertices.Count`.
+    *   Every triangle `MaterialSlotIndex` must satisfy `0 <= index < MaterialSlots.Count`.
+*   **Texture References**: `Metadata.TextureReferences` is populated from the texture paths inside `MaterialSlots`.
+*   **Result Guarantees**: When `O3dGeometryReadResult.Status` is `Success`, `MeshData` must be non-null and all nested collections must be non-null. In any other state (e.g., `Invalid`, `Failed`), `MeshData` must be null.
+
 ### O3dGeometryReadResult
 
 Represents the output details of an O3D geometry reading execution.
@@ -272,6 +284,12 @@ Represents the output details of an O3D geometry reading execution.
 Defines the service contract for parsing O3D model file geometry asynchronously.
 
 *   `ReadAsync(filePath, cancellationToken)`: Reads and parses version, encryption, vertex, face, and material geometry data from the specified O3D file asynchronously, returning an `O3dGeometryReadResult`. Supports cooperative cancellation.
+
+## Coordinate System & Winding Decisions
+
+*   **Raw Orientation**: Parsed geometry data is kept in its raw, original DirectX-space coordinate system (typically left-handed, Y-up/Z-forward). No coordinate transformations or basis modifications are performed at the format parser level.
+*   **Winding Order**: Triangles preserve their raw winding order as defined in the binary `.o3d` face records.
+*   **Decoupling**: Coordinate system transformations, scale adjustments, and winding-order flips (e.g. for glTF/right-handed conversions) are intentionally decoupled from the parser and will be handled during exporting/conversion in later phases.
 
 
 

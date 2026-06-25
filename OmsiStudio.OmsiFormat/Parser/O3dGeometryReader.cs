@@ -34,6 +34,14 @@ public class O3dGeometryReader : IO3dGeometryReader
         }
     }
 
+    /// <summary>
+    /// Opens the specified file as a stream. Can be overridden in tests to inject custom streams.
+    /// </summary>
+    protected virtual Stream OpenFile(string filePath)
+    {
+        return new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+    }
+
     private O3dGeometryReadResult ReadCore(string filePath, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -72,12 +80,12 @@ public class O3dGeometryReader : IO3dGeometryReader
             };
         }
 
-        FileStream? fs = null;
+        Stream? fs = null;
         BoundedBinaryReader? reader = null;
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            fs = OpenFile(filePath);
             reader = new BoundedBinaryReader(fs);
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -252,7 +260,8 @@ public class O3dGeometryReader : IO3dGeometryReader
                 };
             }
 
-            // Read/Skip material texture strings to position at vertex block
+            // Read material texture strings
+            var materialSlots = new List<O3dMaterialSlot>();
             for (int i = 0; i < (int)materialCount; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -310,7 +319,12 @@ public class O3dGeometryReader : IO3dGeometryReader
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
-                reader.Skip(stringLen);
+                string texPath = reader.ReadBoundedString((int)stringLen, O3dGeometrySafetyPolicy.MaxStringLength, System.Text.Encoding.ASCII);
+                materialSlots.Add(new O3dMaterialSlot
+                {
+                    MaterialName = $"Material {i}",
+                    TextureReference = string.IsNullOrWhiteSpace(texPath) ? null : texPath
+                });
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -349,6 +363,161 @@ public class O3dGeometryReader : IO3dGeometryReader
             }
 
             cancellationToken.ThrowIfCancellationRequested();
+            bool useLongIndices = UsesLongIndices(formatVersion);
+
+            // Validate face block size using safety policy
+            if (!O3dGeometrySafetyPolicy.ValidateFaceBlock(triangleCount, useLongIndices, reader.RemainingBytes, reader.Position, out var faceDiag))
+            {
+                return new O3dGeometryReadResult
+                {
+                    Status = O3dGeometryStatus.Invalid,
+                    Diagnostics = faceDiag != null ? new List<O3dDiagnostic> { faceDiag } : []
+                };
+            }
+
+            // Read faces
+            var triangles = new List<O3dTriangle>();
+            for (int i = 0; i < (int)triangleCount; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                long recordOffset = reader.Position;
+                long v0Raw, v1Raw, v2Raw;
+                ushort materialIndex;
+
+                if (useLongIndices)
+                {
+                    v0Raw = reader.ReadUInt32();
+                    v1Raw = reader.ReadUInt32();
+                    v2Raw = reader.ReadUInt32();
+                    materialIndex = reader.ReadUInt16();
+                }
+                else
+                {
+                    v0Raw = reader.ReadUInt16();
+                    v1Raw = reader.ReadUInt16();
+                    v2Raw = reader.ReadUInt16();
+                    materialIndex = reader.ReadUInt16();
+                }
+
+                // Validate each index is 0 <= index < vertexCount and fits in integer
+                if (v0Raw > int.MaxValue || v1Raw > int.MaxValue || v2Raw > int.MaxValue ||
+                    v0Raw >= vertexCount || v1Raw >= vertexCount || v2Raw >= vertexCount)
+                {
+                    return new O3dGeometryReadResult
+                    {
+                        Status = O3dGeometryStatus.Invalid,
+                        Diagnostics = new List<O3dDiagnostic>
+                        {
+                            new()
+                            {
+                                Severity = O3dDiagnosticSeverity.Error,
+                                Code = O3dDiagnosticCode.InvalidIndex,
+                                Message = $"Triangle {i} has out-of-bounds or overflow vertex index: ({v0Raw}, {v1Raw}, {v2Raw}). Vertex count: {vertexCount}.",
+                                ByteOffset = recordOffset
+                            }
+                        }
+                    };
+                }
+
+                // Validate material slot index bounds
+                if (materialIndex >= materialCount)
+                {
+                    return new O3dGeometryReadResult
+                    {
+                        Status = O3dGeometryStatus.Invalid,
+                        Diagnostics = new List<O3dDiagnostic>
+                        {
+                            new()
+                            {
+                                Severity = O3dDiagnosticSeverity.Error,
+                                Code = O3dDiagnosticCode.InvalidIndex,
+                                Message = $"Triangle {i} has out-of-bounds material slot index: {materialIndex}. Material count: {materialCount}.",
+                                ByteOffset = recordOffset
+                            }
+                        }
+                    };
+                }
+
+                triangles.Add(new O3dTriangle
+                {
+                    V0 = (int)v0Raw,
+                    V1 = (int)v1Raw,
+                    V2 = (int)v2Raw,
+                    MaterialSlotIndex = materialIndex
+                });
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // Populate Metadata.TextureReferences from material slots
+            var textureReferences = new List<O3dTextureReference>();
+            foreach (var slot in materialSlots)
+            {
+                if (!string.IsNullOrWhiteSpace(slot.TextureReference))
+                {
+                    textureReferences.Add(new O3dTextureReference { Path = slot.TextureReference });
+                }
+            }
+
+            // Consistency checks
+            if (vertices.Count != (int)vertexCount ||
+                triangles.Count != (int)triangleCount ||
+                materialSlots.Count != (int)materialCount)
+            {
+                return new O3dGeometryReadResult
+                {
+                    Status = O3dGeometryStatus.Invalid,
+                    Diagnostics = new List<O3dDiagnostic>
+                    {
+                        new()
+                        {
+                            Severity = O3dDiagnosticSeverity.Error,
+                            Code = O3dDiagnosticCode.InvalidIndex,
+                            Message = $"Consistency check failed: actual collection counts (Vertices: {vertices.Count}, Triangles: {triangles.Count}, Materials: {materialSlots.Count}) do not match header metadata counts (Vertices: {vertexCount}, Triangles: {triangleCount}, Materials: {materialCount})."
+                        }
+                    }
+                };
+            }
+
+            foreach (var triangle in triangles)
+            {
+                if (triangle.MaterialSlotIndex < 0 || triangle.MaterialSlotIndex >= materialSlots.Count)
+                {
+                    return new O3dGeometryReadResult
+                    {
+                        Status = O3dGeometryStatus.Invalid,
+                        Diagnostics = new List<O3dDiagnostic>
+                        {
+                            new()
+                            {
+                                Severity = O3dDiagnosticSeverity.Error,
+                                Code = O3dDiagnosticCode.InvalidIndex,
+                                Message = $"Consistency check failed: triangle material slot index {triangle.MaterialSlotIndex} is out of bounds for the material slots collection (Count: {materialSlots.Count})."
+                            }
+                        }
+                    };
+                }
+
+                if (triangle.V0 < 0 || triangle.V0 >= vertices.Count ||
+                    triangle.V1 < 0 || triangle.V1 >= vertices.Count ||
+                    triangle.V2 < 0 || triangle.V2 >= vertices.Count)
+                {
+                    return new O3dGeometryReadResult
+                    {
+                        Status = O3dGeometryStatus.Invalid,
+                        Diagnostics = new List<O3dDiagnostic>
+                        {
+                            new()
+                            {
+                                Severity = O3dDiagnosticSeverity.Error,
+                                Code = O3dDiagnosticCode.InvalidIndex,
+                                Message = $"Consistency check failed: triangle vertex indices ({triangle.V0}, {triangle.V1}, {triangle.V2}) are out of bounds for the vertices collection (Count: {vertices.Count})."
+                            }
+                        }
+                    };
+                }
+            }
+
             // Create Metadata object for O3dMeshData
             var metadata = new O3dMetadata
             {
@@ -364,14 +533,15 @@ public class O3dGeometryReader : IO3dGeometryReader
                 MeshCount = (int)meshCount,
                 VertexCount = (int)vertexCount,
                 TriangleCount = (int)triangleCount,
-                MaterialCount = (int)materialCount
+                MaterialCount = (int)materialCount,
+                TextureReferences = textureReferences
             };
 
             var meshData = new O3dMeshData
             {
                 Vertices = vertices,
-                Triangles = [],
-                MaterialSlots = [], // Kept empty for this task
+                Triangles = triangles,
+                MaterialSlots = materialSlots,
                 Metadata = metadata
             };
 
@@ -424,5 +594,10 @@ public class O3dGeometryReader : IO3dGeometryReader
             reader?.Dispose();
             fs?.Dispose();
         }
+    }
+
+    private static bool UsesLongIndices(O3dFormatVersion version)
+    {
+        return version == O3dFormatVersion.Version4;
     }
 }

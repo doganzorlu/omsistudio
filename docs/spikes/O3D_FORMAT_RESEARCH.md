@@ -119,10 +119,10 @@ Integrate the parser into the `AssetConversionService` to translate the parsed g
 
 ## Implementation Note (June 2026)
 
-Phase 1 (Test Fixtures) and Phase 2 (Metadata Parser) of the O3D roadmap have been fully completed under the **OS-006-FEATURE-001 - O3D Metadata Pipeline** epic.
-*   **Contract**: The service interface `IO3dMetadataReader` in `OmsiStudio.Core` defines the metadata parsing contract, implemented by `O3dMetadataReader` in `OmsiStudio.OmsiFormat` and integrated directly into the `OmsiAssetScanner` flow.
-*   **Safety & Diagnostics**: Robust bounds checking prevents Denial of Service (DoS) memory allocation attacks, validates string boundaries, protects against truncated streams, and generates structured `O3dDiagnostic` results instead of leaking raw stream exceptions.
-*   **Scope Boundaries**: In accordance with the strict epic exclusions, **Phase 3 (Geometry & Material Parser)** and **Phase 4 (glTF/OBJ Exporter)** remain unimplemented. No geometry buffers (vertices/indices) are parsed, and no 3D viewport rendering or mesh conversion/export capabilities exist in the codebase.
+Phase 1 (Test Fixtures), Phase 2 (Metadata Parser), and Phase 3 (Geometry & Material Parser) of the O3D roadmap have been fully completed under the **OS-006-FEATURE-001** and **OS-007-FEATURE-002** epics.
+*   **Contract**: The service interfaces `IO3dMetadataReader` and `IO3dGeometryReader` in `OmsiStudio.Core` define the parsing contracts, implemented by concrete readers in `OmsiStudio.OmsiFormat` and verified via a comprehensive suite of unit and safety audit tests.
+*   **Safety & Diagnostics**: Robust bounds checking prevents Denial of Service (DoS) memory allocation attacks, validates string boundaries, protects against truncated streams, validates index ranges (both vertex and material slots), and generates structured diagnostics. Cooperative cancellation is fully supported throughout geometry parsing.
+*   **Scope Boundaries**: **Phase 4 (glTF/OBJ Exporter)** and 3D rendering/viewport remain unimplemented and are reserved for future spikes. No 3D visualization, rendering viewport, or exporter conversions exist in the codebase.
 
 ---
 

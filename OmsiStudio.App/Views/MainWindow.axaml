@@ -51,7 +51,7 @@
 
                 <!-- Root Selection Button & Info -->
                 <StackPanel Grid.Row="2" Margin="0,0,0,16" Spacing="6">
-                    <Grid ColumnDefinitions="*,Auto">
+                    <Grid ColumnDefinitions="*,Auto,Auto">
                         <Button Grid.Column="0"
                                 Command="{Binding SelectFolderCommand}" 
                                 HorizontalAlignment="Stretch" 
@@ -75,6 +75,20 @@
                                 Foreground="White" 
                                 CornerRadius="6">
                             <TextBlock Text="🔄" FontSize="14" VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        </Button>
+                        <Button Grid.Column="2"
+                                Command="{Binding ClearCacheAndRefreshCommand}" 
+                                ToolTip.Tip="{Binding L[ClearCacheAndRescan]}"
+                                Margin="6,0,0,0"
+                                Width="36"
+                                HorizontalAlignment="Stretch"
+                                VerticalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                VerticalContentAlignment="Center"
+                                Background="#1e293b" 
+                                Foreground="White" 
+                                CornerRadius="6">
+                            <TextBlock Text="🗑️" FontSize="14" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                         </Button>
                     </Grid>
                     <TextBlock Text="{Binding RootDirectoryDisplay}" 

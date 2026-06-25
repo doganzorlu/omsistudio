@@ -1,5 +1,17 @@
 # OS-007-FEATURE-002 - O3D Geometry Pipeline
 
+> [!NOTE]
+> **Epic Completion Note**: All tasks in the O3D Geometry Pipeline epic have been successfully completed. 
+> **Completed Outputs**:
+> *   **Geometry Domain Models**: Formulated immutable models (`O3dMeshData`, `O3dVertex`, `O3dNormal`, `O3dUv`, `O3dTriangle`, `O3dMaterialSlot`).
+> *   **Reader Contract**: Created `IO3dGeometryReader` interface in `OmsiStudio.Core`.
+> *   **Geometry Test Fixtures**: Added standard, long index, material, invalid, and truncated `.o3d` test fixtures.
+> *   **Safety Policy**: Implemented centralized rules in `O3dGeometrySafetyPolicy` for counts validation, checked arithmetic overflow, string bounds, and file sizes.
+> *   **Vertex & Face Readers**: Implemented vertex block reading and face reading (Standard `<HHHH>` layout and deterministic Version 4 long index `<IIIH>` layout).
+> *   **Material Slots**: Populated material texture references from binary string blocks securely.
+> *   **Mesh Composition**: Formulated final mesh data, checking strict collection length alignment and vertex/material index ranges bounds.
+> *   **Cancellation & Safety Audits**: Added tests for pre-cancelled token, material loop, vertex loop, and face loop cancellation, along with a dedicated suite of safety audit tests for malformed/encrypted/corrupted file inputs.
+
 This epic defines the next implementation sequence for OmsiStudio's `.o3d` support. It builds on the completed metadata pipeline and is intentionally limited to safe geometry extraction.
 
 ## Feature Goal
@@ -179,7 +191,7 @@ Acceptance criteria:
 * Invalid indices produce diagnostics and no successful mesh result.
 * Does not render or export geometry.
 
-### OS-007-TASK-007 - Handle Long Index Layout
+### ✅ OS-007-TASK-007 - Handle Long Index Layout
 
 Support the long face/index layout for meshes that require wider indices.
 
@@ -190,7 +202,10 @@ Acceptance criteria:
 * Index validation is identical to standard layout validation.
 * Existing standard index tests remain passing.
 
-### OS-007-TASK-008 - Implement Material Slot Reader
+> [!NOTE]
+> **Completion Note**: Long layout Version4 üzerinden deterministik seçiliyor. 14-byte face records destekleniyor. Overflow/out-of-bounds index validation mevcut. Geometry rendering/UI/scanner entegrasyonu yapılmadı.
+
+### ✅ OS-007-TASK-008 - Implement Material Slot Reader
 
 Parse material slot metadata needed to associate triangles with material references.
 
@@ -201,7 +216,10 @@ Acceptance criteria:
 * No shader/material preview logic is introduced.
 * No texture file existence checks are performed.
 
-### OS-007-TASK-009 - Compose MeshData From Geometry Sections
+> [!NOTE]
+> **Completion Note**: Material texture strings güvenli parse ediliyor. O3dMaterialSlot listesi dolduruluyor. MaterialSlotIndex bounds validation var. Texture file existence, UI, scanner, rendering ve conversion kapsam dışı kaldı.
+
+### ✅ OS-007-TASK-009 - Compose MeshData From Geometry Sections
 
 Combine metadata, vertices, faces, and material slots into `O3dMeshData`.
 
@@ -212,7 +230,10 @@ Acceptance criteria:
 * Diagnostics are preserved in `O3dGeometryReadResult`.
 * Partial invalid geometry does not return a successful mesh result.
 
-### OS-007-TASK-010 - Add Geometry Reader Cancellation Tests
+> [!NOTE]
+> **Completion Note**: O3dMeshData is composed with strict consistency checks matching vertex/triangle/material counts and verifying index bounds. TextureReferences are populated from MaterialSlots. Success status guarantees non-null collections, and invalid/failed geometry returns null MeshData.
+
+### ✅ OS-007-TASK-010 - Add Geometry Reader Cancellation Tests
 
 Ensure long-running geometry reads support cancellation.
 
@@ -223,7 +244,10 @@ Acceptance criteria:
 * Cancellation during face loop is covered.
 * No cancellation is swallowed as a generic read failure.
 
-### OS-007-TASK-011 - Add Geometry Validation Audit Tests
+> [!NOTE]
+> **Completion Note**: Pre-cancelled token, material loop cancellation, vertex loop cancellation, and face loop cancellation are tested deterministically. A test-only `CancellingStream` was used to trigger cancellation at precise byte offsets. All tests pass and throw `OperationCanceledException` properly.
+
+### ✅ OS-007-TASK-011 - Add Geometry Validation Audit Tests
 
 Add focused safety audit tests for the full geometry pipeline.
 
@@ -242,7 +266,10 @@ Acceptance criteria:
 * Tests fail if invalid face indices are accepted.
 * Tests fail if malformed strings overrun the stream.
 
-### OS-007-TASK-012 - Add Scanner-Independent Geometry Reader Tests
+> [!NOTE]
+> **Completion Note**: Safety audit tests are added to a dedicated `O3dGeometrySafetyAuditTests` class. Coverage includes DoS safety, vertex/face truncation, bounds validations (indices, material slot indices), encrypted files, string lengths limits, and success metrics.
+
+### ✅ OS-007-TASK-012 - Add Scanner-Independent Geometry Reader Tests
 
 Validate geometry reader behavior without involving `.sco` scanning.
 
@@ -253,7 +280,10 @@ Acceptance criteria:
 * No App dependency.
 * No conversion dependency.
 
-### OS-007-TASK-013 - Document Coordinate System and Winding Decisions
+> [!NOTE]
+> **Completion Note**: The entire test suites target `IO3dGeometryReader` / `O3dGeometryReader` directly without dependencies on scanner, UI, or conversion.
+
+### ✅ OS-007-TASK-013 - Document Coordinate System and Winding Decisions
 
 Document the raw geometry orientation assumptions before any preview/export work.
 
@@ -264,7 +294,10 @@ Acceptance criteria:
 * Do not implement transformation/export in this task.
 * Update research notes if implementation confirms or changes assumptions.
 
-### OS-007-TASK-014 - Geometry Pipeline Documentation and Backlog Update
+> [!NOTE]
+> **Completion Note**: Documented raw DirectX-space coordinate assumptions and winding-order details in DOMAIN_MODEL.md. No transformations are performed during parsing.
+
+### ✅ OS-007-TASK-014 - Geometry Pipeline Documentation and Backlog Update
 
 Update project docs after the geometry pipeline is complete.
 
@@ -281,6 +314,9 @@ Acceptance criteria:
 * Documentation says geometry parsing exists.
 * Documentation still says rendering, viewport, and conversion/export are not implemented.
 * Backlog accurately marks completed tasks.
+
+> [!NOTE]
+> **Completion Note**: Updated all documentation (README.md, DOMAIN_MODEL.md, O3D_FORMAT_RESEARCH.md, OMSISTUDIO_EPIC_BACKLOG.md, and O3D_GEOMETRY_PIPELINE_EPIC.md).
 
 ---
 
