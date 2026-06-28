@@ -170,6 +170,122 @@ public sealed class ScoParser
                         }
                         break;
 
+                    case "[new_pos]":
+                        if (meshes.Count > 0)
+                        {
+                            var lastMesh = meshes[^1];
+                            var xStr = GetNextValueLine(lineList, ref i);
+                            var yStr = GetNextValueLine(lineList, ref i);
+                            var zStr = GetNextValueLine(lineList, ref i);
+                            if (double.TryParse(xStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double px) &&
+                                double.TryParse(yStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double py) &&
+                                double.TryParse(zStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double pz))
+                            {
+                                lastMesh.PosX = px;
+                                lastMesh.PosY = py;
+                                lastMesh.PosZ = pz;
+                            }
+                            else
+                            {
+                                var warn = $"Malformed [new_pos] block values: px='{xStr}', py='{yStr}', pz='{zStr}'";
+                                warnings.Add(warn);
+                                lastMesh.Warnings.Add(warn);
+                            }
+                        }
+                        break;
+
+                    case "[rot_x]":
+                    case "[rotx]":
+                        if (meshes.Count > 0)
+                        {
+                            var lastMesh = meshes[^1];
+                            var angleStr = GetNextValueLine(lineList, ref i);
+                            if (double.TryParse(angleStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double rx))
+                            {
+                                lastMesh.RotX = rx;
+                            }
+                            else
+                            {
+                                var warn = $"Malformed rotation angle: '{angleStr}'";
+                                warnings.Add(warn);
+                                lastMesh.Warnings.Add(warn);
+                            }
+                        }
+                        break;
+
+                    case "[rot_y]":
+                    case "[roty]":
+                        if (meshes.Count > 0)
+                        {
+                            var lastMesh = meshes[^1];
+                            var angleStr = GetNextValueLine(lineList, ref i);
+                            if (double.TryParse(angleStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double ry))
+                            {
+                                lastMesh.RotY = ry;
+                            }
+                            else
+                            {
+                                var warn = $"Malformed rotation angle: '{angleStr}'";
+                                warnings.Add(warn);
+                                lastMesh.Warnings.Add(warn);
+                            }
+                        }
+                        break;
+
+                    case "[rot_z]":
+                    case "[rotz]":
+                        if (meshes.Count > 0)
+                        {
+                            var lastMesh = meshes[^1];
+                            var angleStr = GetNextValueLine(lineList, ref i);
+                            if (double.TryParse(angleStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double rz))
+                            {
+                                lastMesh.RotZ = rz;
+                            }
+                            else
+                            {
+                                var warn = $"Malformed rotation angle: '{angleStr}'";
+                                warnings.Add(warn);
+                                lastMesh.Warnings.Add(warn);
+                            }
+                        }
+                        break;
+
+                    case "[scale]":
+                        if (meshes.Count > 0)
+                        {
+                            var lastMesh = meshes[^1];
+                            var xStr = GetNextValueLine(lineList, ref i);
+                            int indexBackup = i;
+                            var yStr = GetNextValueLine(lineList, ref i);
+                            var zStr = GetNextValueLine(lineList, ref i);
+
+                            if (double.TryParse(xStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double sx))
+                            {
+                                if (double.TryParse(yStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double sy) &&
+                                    double.TryParse(zStr, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double sz))
+                                {
+                                    lastMesh.ScaleX = sx;
+                                    lastMesh.ScaleY = sy;
+                                    lastMesh.ScaleZ = sz;
+                                }
+                                else
+                                {
+                                    i = indexBackup;
+                                    lastMesh.ScaleX = sx;
+                                    lastMesh.ScaleY = sx;
+                                    lastMesh.ScaleZ = sx;
+                                }
+                            }
+                            else
+                            {
+                                var warn = $"Malformed [scale] block value: '{xStr}'";
+                                warnings.Add(warn);
+                                lastMesh.Warnings.Add(warn);
+                            }
+                        }
+                        break;
+
                     case "[script]":
                         var script = GetNextValueLine(lineList, ref i);
                         if (script != null)

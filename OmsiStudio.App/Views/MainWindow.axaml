@@ -458,9 +458,11 @@
                                     <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0">
                                         <TextBlock Grid.Column="0" Text="{Binding L[VisualModeLabel]}" FontSize="11" Foreground="#94a3b8" VerticalAlignment="Center"/>
                                         <ComboBox Grid.Column="1" SelectedIndex="{Binding VisualModeInt}" FontSize="11" Width="140" Height="26" Background="#1e293b" BorderBrush="#2a2a32">
+                                            <ComboBoxItem Content="{Binding L[VisualModeTexturedSolid]}"/>
+                                            <ComboBoxItem Content="{Binding L[VisualModeTexturedWireframe]}"/>
+                                            <ComboBoxItem Content="{Binding L[VisualModeSolidColor]}"/>
+                                            <ComboBoxItem Content="{Binding L[VisualModeSolidColorWireframe]}"/>
                                             <ComboBoxItem Content="{Binding L[VisualModeWireframe]}"/>
-                                            <ComboBoxItem Content="{Binding L[VisualModeSolid]}"/>
-                                            <ComboBoxItem Content="{Binding L[VisualModeSolidWireframe]}"/>
                                         </ComboBox>
                                     </Grid>
 
@@ -605,7 +607,7 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Meshes (.o3d references) -->
+                        <!-- Meshes (.o3d/.x references) -->
                         <Border Background="#1a1a1e" BorderBrush="#2a2a32" BorderThickness="1" CornerRadius="8" Padding="16">
                             <StackPanel Spacing="10">
                                 <TextBlock Text="{Binding L[MeshesSection]}" FontSize="14" FontWeight="SemiBold" Foreground="#6366f1"/>

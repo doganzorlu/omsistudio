@@ -438,4 +438,331 @@ public class MaterialTextureBindingServiceTests
             Assert.Equal(TextureBindingStatus.Bound, result[i].Status);
         }
     }
+
+    [Fact]
+    public async Task BindAsync_WithMultipleSourceModelPaths_ResolvesEachTextureAgainstItsOwnFolder()
+    {
+        // Arrange
+        var resolvedPaths = new List<string>();
+        var fakeResolver = new FakeTextureResolver
+        {
+            OnResolve = (path, model, root) =>
+            {
+                resolvedPaths.Add(model);
+                return new OmsiTextureReference
+                {
+                    TexturePath = "resolved_" + path,
+                    ResolvedPath = "/resolved/" + path,
+                    ResolutionStatus = OmsiTextureReferenceResolutionStatus.Resolved
+                };
+            }
+        };
+
+        var fakeLoader = new FakeTextureImageLoader
+        {
+            OnLoadAsync = (path, token) => Task.FromResult(new TextureLoadResult
+            {
+                Status = TextureLoadStatus.Success,
+                Image = new TextureImageData { Width = 64, Height = 64 }
+            })
+        };
+
+        var service = new MaterialTextureBindingService(fakeResolver, fakeLoader);
+
+        var meshData = new O3dMeshData
+        {
+            MaterialSlots = [
+                new O3dMaterialSlot { MaterialName = "Mat0", TextureReference = "tex0.png", SourceModelPath = "/folderA/modelA.o3d" },
+                new O3dMaterialSlot { MaterialName = "Mat1", TextureReference = "tex1.png", SourceModelPath = "/folderB/modelB.o3d" }
+            ]
+        };
+
+        // Act
+        var result = await service.BindAsync(meshData, "/fallback/fallback.o3d", "/root");
+
+        // Assert
+        Assert.Equal(2, result.Count);
+        Assert.Equal("/folderA/modelA.o3d", resolvedPaths[0]);
+        Assert.Equal("/folderB/modelB.o3d", resolvedPaths[1]);
+    }
+
+    [Fact]
+    public async Task BindAsync_SingleMesh_FallbackToModelFilePath()
+    {
+        // Arrange
+        var resolvedPaths = new List<string>();
+        var fakeResolver = new FakeTextureResolver
+        {
+            OnResolve = (path, model, root) =>
+            {
+                resolvedPaths.Add(model);
+                return new OmsiTextureReference
+                {
+                    TexturePath = "resolved_" + path,
+                    ResolvedPath = "/resolved/" + path,
+                    ResolutionStatus = OmsiTextureReferenceResolutionStatus.Resolved
+                };
+            }
+        };
+
+        var fakeLoader = new FakeTextureImageLoader
+        {
+            OnLoadAsync = (path, token) => Task.FromResult(new TextureLoadResult
+            {
+                Status = TextureLoadStatus.Success,
+                Image = new TextureImageData { Width = 64, Height = 64 }
+            })
+        };
+
+        var service = new MaterialTextureBindingService(fakeResolver, fakeLoader);
+
+        var meshData = new O3dMeshData
+        {
+            MaterialSlots = [
+                new O3dMaterialSlot { MaterialName = "Mat0", TextureReference = "tex0.png" }
+            ]
+        };
+
+        // Act
+        var result = await service.BindAsync(meshData, "/fallback/fallback.o3d", "/root");
+
+        // Assert
+        Assert.Single(result);
+        Assert.Equal("/fallback/fallback.o3d", resolvedPaths[0]);
+    }
+
+    [Fact]
+    public async Task BindAsync_ExceedsMaxTextureBindings_SkipsFurtherTexturesWithWarning()
+    {
+        // Arrange
+        int originalLimit = PreviewPerformancePolicy.MaxTextureBindings;
+        PreviewPerformancePolicy.MaxTextureBindings = 1;
+
+        try
+        {
+            var fakeResolver = new FakeTextureResolver
+            {
+                OnResolve = (path, model, root) => new OmsiTextureReference
+                {
+                    TexturePath = path,
+                    ResolvedPath = $"/resolved/{path}",
+                    Exists = true,
+                    ResolutionStatus = OmsiTextureReferenceResolutionStatus.Resolved
+                }
+            };
+
+            var fakeLoader = new FakeTextureImageLoader
+            {
+                OnLoadAsync = (path, token) => Task.FromResult(new TextureLoadResult
+                {
+                    Status = TextureLoadStatus.Success,
+                    Image = new TextureImageData { Width = 8, Height = 8 }
+                })
+            };
+
+            var service = new MaterialTextureBindingService(fakeResolver, fakeLoader);
+
+            var meshData = new O3dMeshData
+            {
+                MaterialSlots = [
+                    new O3dMaterialSlot { MaterialName = "Mat0", TextureReference = "tex0.png" },
+                    new O3dMaterialSlot { MaterialName = "Mat1", TextureReference = "tex1.png" }
+                ]
+            };
+
+            // Act
+            var result = await service.BindAsync(meshData, "model.o3d", "/root");
+
+            // Assert
+            Assert.Equal(2, result.Count);
+            Assert.Equal(TextureBindingStatus.Bound, result[0].Status);
+            Assert.Equal(TextureBindingStatus.TooLarge, result[1].Status);
+            Assert.Single(result[1].Diagnostics);
+            Assert.Equal(O3dDiagnosticCode.SafetyLimitExceeded, result[1].Diagnostics[0].Code);
+            Assert.Contains("Exceeded MaxTextureBindings", result[1].Diagnostics[0].Message);
+        }
+        finally
+        {
+            PreviewPerformancePolicy.MaxTextureBindings = originalLimit;
+        }
+    }
+
+    [Fact]
+    public async Task BindAsync_ExceedsMaxTotalTexturePixels_SkipsFurtherTexturesWithWarning()
+    {
+        // Arrange
+        long originalLimit = PreviewPerformancePolicy.MaxTotalTexturePixels;
+        PreviewPerformancePolicy.MaxTotalTexturePixels = 100;
+
+        try
+        {
+            var fakeResolver = new FakeTextureResolver
+            {
+                OnResolve = (path, model, root) => new OmsiTextureReference
+                {
+                    TexturePath = path,
+                    ResolvedPath = $"/resolved/{path}",
+                    Exists = true,
+                    ResolutionStatus = OmsiTextureReferenceResolutionStatus.Resolved
+                }
+            };
+
+            var fakeLoader = new FakeTextureImageLoader
+            {
+                OnLoadAsync = (path, token) =>
+                {
+                    int dim = path.Contains("tex0") ? 10 : 5; // 10x10 = 100, 5x5 = 25
+                    return Task.FromResult(new TextureLoadResult
+                    {
+                        Status = TextureLoadStatus.Success,
+                        Image = new TextureImageData { Width = dim, Height = dim }
+                    });
+                }
+            };
+
+            var service = new MaterialTextureBindingService(fakeResolver, fakeLoader);
+
+            var meshData = new O3dMeshData
+            {
+                MaterialSlots = [
+                    new O3dMaterialSlot { MaterialName = "Mat0", TextureReference = "tex0.png" },
+                    new O3dMaterialSlot { MaterialName = "Mat1", TextureReference = "tex1.png" }
+                ]
+            };
+
+            // Act
+            var result = await service.BindAsync(meshData, "model.o3d", "/root");
+
+            // Assert
+            Assert.Equal(2, result.Count);
+            Assert.Equal(TextureBindingStatus.Bound, result[0].Status);
+            Assert.Equal(TextureBindingStatus.TooLarge, result[1].Status);
+            Assert.Single(result[1].Diagnostics);
+            Assert.Equal(O3dDiagnosticCode.SafetyLimitExceeded, result[1].Diagnostics[0].Code);
+            Assert.Contains("Total texture size exceeds MaxTotalTexturePixels", result[1].Diagnostics[0].Message);
+        }
+        finally
+        {
+            PreviewPerformancePolicy.MaxTotalTexturePixels = originalLimit;
+        }
+    }
+
+    [Fact]
+    public async Task BindAsync_SameTexturePath_CountsAsOneBindingAndOnePixelContribution()
+    {
+        // Arrange
+        int originalBindingsLimit = PreviewPerformancePolicy.MaxTextureBindings;
+        long originalPixelsLimit = PreviewPerformancePolicy.MaxTotalTexturePixels;
+        
+        // Limits: Max 1 unique texture path, Max 100 pixels
+        PreviewPerformancePolicy.MaxTextureBindings = 1;
+        PreviewPerformancePolicy.MaxTotalTexturePixels = 100;
+
+        try
+        {
+            var fakeResolver = new FakeTextureResolver
+            {
+                OnResolve = (path, model, root) => new OmsiTextureReference
+                {
+                    TexturePath = path,
+                    ResolvedPath = "/resolved/shared.png", // Same resolved path
+                    Exists = true,
+                    ResolutionStatus = OmsiTextureReferenceResolutionStatus.Resolved
+                }
+            };
+
+            var fakeLoader = new FakeTextureImageLoader
+            {
+                OnLoadAsync = (path, token) => Task.FromResult(new TextureLoadResult
+                {
+                    Status = TextureLoadStatus.Success,
+                    Image = new TextureImageData { Width = 10, Height = 10 } // 100 pixels
+                })
+            };
+
+            var service = new MaterialTextureBindingService(fakeResolver, fakeLoader);
+
+            var meshData = new O3dMeshData
+            {
+                MaterialSlots = [
+                    new O3dMaterialSlot { MaterialName = "Mat0", TextureReference = "shared.png" },
+                    new O3dMaterialSlot { MaterialName = "Mat1", TextureReference = "SHARED.PNG" } // Different casing
+                ]
+            };
+
+            // Act
+            var result = await service.BindAsync(meshData, "model.o3d", "/root");
+
+            // Assert
+            Assert.Equal(2, result.Count);
+            // Both slots are successfully bound because they share the same resolved path and don't consume extra budget!
+            Assert.Equal(TextureBindingStatus.Bound, result[0].Status);
+            Assert.Equal(TextureBindingStatus.Bound, result[1].Status);
+        }
+        finally
+        {
+            PreviewPerformancePolicy.MaxTextureBindings = originalBindingsLimit;
+            PreviewPerformancePolicy.MaxTotalTexturePixels = originalPixelsLimit;
+        }
+    }
+
+    [Fact]
+    public async Task BindAsync_DifferentPaths_TriggerLimitsIndependently()
+    {
+        // Arrange
+        int originalBindingsLimit = PreviewPerformancePolicy.MaxTextureBindings;
+        long originalPixelsLimit = PreviewPerformancePolicy.MaxTotalTexturePixels;
+
+        // Limits: Max 1 unique texture path, Max 150 pixels
+        PreviewPerformancePolicy.MaxTextureBindings = 1;
+        PreviewPerformancePolicy.MaxTotalTexturePixels = 150;
+
+        try
+        {
+            var fakeResolver = new FakeTextureResolver
+            {
+                OnResolve = (path, model, root) => new OmsiTextureReference
+                {
+                    TexturePath = path,
+                    ResolvedPath = $"/resolved/{path}", // Different paths
+                    Exists = true,
+                    ResolutionStatus = OmsiTextureReferenceResolutionStatus.Resolved
+                }
+            };
+
+            var fakeLoader = new FakeTextureImageLoader
+            {
+                OnLoadAsync = (path, token) => Task.FromResult(new TextureLoadResult
+                {
+                    Status = TextureLoadStatus.Success,
+                    Image = new TextureImageData { Width = 10, Height = 10 } // 100 pixels
+                })
+            };
+
+            var service = new MaterialTextureBindingService(fakeResolver, fakeLoader);
+
+            var meshData = new O3dMeshData
+            {
+                MaterialSlots = [
+                    new O3dMaterialSlot { MaterialName = "Mat0", TextureReference = "tex0.png" },
+                    new O3dMaterialSlot { MaterialName = "Mat1", TextureReference = "tex1.png" }
+                ]
+            };
+
+            // Act
+            var result = await service.BindAsync(meshData, "model.o3d", "/root");
+
+            // Assert
+            Assert.Equal(2, result.Count);
+            Assert.Equal(TextureBindingStatus.Bound, result[0].Status);
+            // Second slot is skipped because it requires a second unique texture path which exceeds MaxTextureBindings (1)
+            Assert.Equal(TextureBindingStatus.TooLarge, result[1].Status);
+            Assert.Contains("Exceeded MaxTextureBindings", result[1].Diagnostics[0].Message);
+        }
+        finally
+        {
+            PreviewPerformancePolicy.MaxTextureBindings = originalBindingsLimit;
+            PreviewPerformancePolicy.MaxTotalTexturePixels = originalPixelsLimit;
+        }
+    }
 }

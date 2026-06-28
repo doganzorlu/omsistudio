@@ -295,6 +295,15 @@ public class OmsiAssetScanner : IOmsiAssetScanner
                 }
             }
 
+            var resolvedWithTransform = new OmsiModelReference(resolved.MeshPath, resolved.ResolvedPath, resolved.Exists, resolved.ResolutionStatus)
+            {
+                Transform = modelRef.Transform,
+                TransformWarnings = modelRef.TransformWarnings,
+                Metadata = resolved.Metadata,
+                MetadataStatus = resolved.MetadataStatus,
+                MetadataDiagnostics = resolved.MetadataDiagnostics
+            };
+            resolved = resolvedWithTransform;
             resolvedList.Add(resolved);
 
             if (warningsCollector != null)

@@ -11,6 +11,16 @@ public sealed class OmsiModelReference
     public OmsiModelReferenceResolutionStatus ResolutionStatus { get; init; } = OmsiModelReferenceResolutionStatus.Unknown;
 
     /// <summary>
+    /// Gets the mesh transformation (translation, rotation, scale) parsed from the SCO.
+    /// </summary>
+    public OmsiMeshTransform Transform { get; init; } = OmsiMeshTransform.Identity;
+
+    /// <summary>
+    /// Gets the list of warnings generated while parsing this model reference's transform.
+    /// </summary>
+    public IReadOnlyList<string> TransformWarnings { get; init; } = Array.Empty<string>();
+
+    /// <summary>
     /// Gets the optional parsed O3D metadata.
     /// </summary>
     public O3dMetadata? Metadata { get; init; }

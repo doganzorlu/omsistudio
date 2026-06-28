@@ -2743,25 +2743,25 @@ public class MainWindowViewModelTests
         };
 
         // Assert Default
-        Assert.Equal(SoftwareViewportVisualMode.Solid, viewModel.VisualMode);
-        Assert.Equal(1, viewModel.VisualModeInt);
+        Assert.Equal(SoftwareViewportVisualMode.TexturedSolid, viewModel.VisualMode);
+        Assert.Equal(0, viewModel.VisualModeInt);
 
         // Act
-        viewModel.VisualMode = SoftwareViewportVisualMode.SolidWireframe;
+        viewModel.VisualMode = SoftwareViewportVisualMode.TexturedWireframe;
 
         // Assert
-        Assert.Equal(SoftwareViewportVisualMode.SolidWireframe, viewModel.VisualMode);
-        Assert.Equal(2, viewModel.VisualModeInt);
+        Assert.Equal(SoftwareViewportVisualMode.TexturedWireframe, viewModel.VisualMode);
+        Assert.Equal(1, viewModel.VisualModeInt);
         Assert.Contains(nameof(viewModel.VisualMode), triggeredProperties);
         Assert.Contains(nameof(viewModel.VisualModeInt), triggeredProperties);
 
         // Act 2
         triggeredProperties.Clear();
-        viewModel.VisualModeInt = 1;
+        viewModel.VisualModeInt = 4; // Wireframe
 
         // Assert 2
-        Assert.Equal(SoftwareViewportVisualMode.Solid, viewModel.VisualMode);
-        Assert.Equal(1, viewModel.VisualModeInt);
+        Assert.Equal(SoftwareViewportVisualMode.Wireframe, viewModel.VisualMode);
+        Assert.Equal(4, viewModel.VisualModeInt);
         Assert.Contains(nameof(viewModel.VisualMode), triggeredProperties);
         Assert.Contains(nameof(viewModel.VisualModeInt), triggeredProperties);
     }
@@ -2984,9 +2984,11 @@ public class MainWindowViewModelTests
     private class FakeAssetPreviewLoader : IAssetPreviewLoader
     {
         public Func<AssetPreviewRequest, CancellationToken, Task<AssetPreviewResult>>? LoadFunc { get; set; }
+        public AssetPreviewRequest? LastRequest { get; private set; }
 
         public Task<AssetPreviewResult> LoadAsync(AssetPreviewRequest request, CancellationToken cancellationToken = default)
         {
+            LastRequest = request;
             if (LoadFunc != null)
             {
                 return LoadFunc(request, cancellationToken);
@@ -3594,5 +3596,363 @@ public class MainWindowViewModelTests
         Assert.Null(viewModel.SelectedPreviewModelReference);
         Assert.Equal(AssetPreviewStatus.Idle, viewModel.PreviewStatus);
         Assert.Null(viewModel.PreviewResult);
+    }
+
+    [Fact]
+    public void SelectedAsset_Changed_SkipsResolvedNonO3dAndSelectsResolvedO3d()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        var localization = new LocalizationService();
+
+        var resolvedNonO3d = new OmsiModelReference("mesh_resolved.obj", "/path/mesh_resolved.obj", true, OmsiModelReferenceResolutionStatus.Resolved);
+        var resolvedO3d = new OmsiModelReference("mesh_resolved.o3d", "/path/mesh_resolved.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        var asset = new OmsiAsset
+        {
+            RelativePath = "scenery/object.sco",
+            ModelReferences = new List<OmsiModelReference> { resolvedNonO3d, resolvedO3d }
+        };
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), localization,
+            previewLoader: fakeLoader,
+            materialTextureBindingService: null);
+
+        // Act
+        viewModel.SelectedAsset = asset;
+
+        // Assert
+        Assert.Same(resolvedO3d, viewModel.SelectedPreviewModelReference);
+    }
+
+    [Fact]
+    public void SelectedAsset_Changed_SelectsResolvedUppercaseO3d()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        var localization = new LocalizationService();
+
+        var resolvedUppercaseO3d = new OmsiModelReference("mesh_resolved.O3D", "/path/mesh_resolved.O3D", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        var asset = new OmsiAsset
+        {
+            RelativePath = "scenery/object.sco",
+            ModelReferences = new List<OmsiModelReference> { resolvedUppercaseO3d }
+        };
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), localization,
+            previewLoader: fakeLoader,
+            materialTextureBindingService: null);
+
+        // Act
+        viewModel.SelectedAsset = asset;
+
+        // Assert
+        Assert.Same(resolvedUppercaseO3d, viewModel.SelectedPreviewModelReference);
+    }
+
+    [Fact]
+    public void SelectedAsset_Changed_ClearsPreviewIfOnlyResolvedNonO3dExists()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        var localization = new LocalizationService();
+
+        var resolvedNonO3d = new OmsiModelReference("mesh_resolved.obj", "/path/mesh_resolved.obj", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        var asset = new OmsiAsset
+        {
+            RelativePath = "scenery/object.sco",
+            ModelReferences = new List<OmsiModelReference> { resolvedNonO3d }
+        };
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), localization,
+            previewLoader: fakeLoader,
+            materialTextureBindingService: null);
+
+        // Setup dummy pre-existing preview state
+        viewModel.PreviewResult = new AssetPreviewResult { MeshData = new O3dMeshData(), Status = AssetPreviewStatus.Success };
+        viewModel.PreviewStatus = AssetPreviewStatus.Success;
+
+        // Act
+        viewModel.SelectedAsset = asset;
+
+        // Assert
+        Assert.Null(viewModel.SelectedPreviewModelReference);
+        Assert.Equal(AssetPreviewStatus.Idle, viewModel.PreviewStatus);
+        Assert.Null(viewModel.PreviewResult);
+    }
+
+    [Fact]
+    public async Task SelectedAsset_Changed_AutoPreviewLoadsAllResolvedO3dModelReferences()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        var localization = new LocalizationService();
+
+        var resolvedModel1 = new OmsiModelReference("mesh1.o3d", "/path/mesh1.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+        var resolvedModel2 = new OmsiModelReference("mesh2.o3d", "/path/mesh2.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+        var unresolvedModel = new OmsiModelReference("mesh_unresolved.o3d", "/path/mesh_unresolved.o3d", false, OmsiModelReferenceResolutionStatus.Missing);
+
+        var asset = new OmsiAsset
+        {
+            RelativePath = "scenery/object.sco",
+            ModelReferences = new List<OmsiModelReference>
+            {
+                resolvedModel1,
+                unresolvedModel,
+                resolvedModel2
+            }
+        };
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), localization,
+            previewLoader: fakeLoader,
+            materialTextureBindingService: null);
+
+        // Act
+        viewModel.SelectedAsset = asset;
+
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null) await execution;
+
+        // Assert - auto preview request should contain all resolved .o3d paths
+        Assert.NotNull(fakeLoader.LastRequest);
+        Assert.Equal(2, fakeLoader.LastRequest.ModelPaths.Count);
+        Assert.Contains("/path/mesh1.o3d", fakeLoader.LastRequest.ModelPaths);
+        Assert.Contains("/path/mesh2.o3d", fakeLoader.LastRequest.ModelPaths);
+        Assert.DoesNotContain("/path/mesh_unresolved.o3d", fakeLoader.LastRequest.ModelPaths);
+    }
+
+    [Fact]
+    public async Task LoadPreviewCommand_WithManualParameter_LoadsOnlySingleMesh()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        var localization = new LocalizationService();
+
+        var resolvedModel1 = new OmsiModelReference("mesh1.o3d", "/path/mesh1.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+        var resolvedModel2 = new OmsiModelReference("mesh2.o3d", "/path/mesh2.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        var asset = new OmsiAsset
+        {
+            RelativePath = "scenery/object.sco",
+            ModelReferences = new List<OmsiModelReference> { resolvedModel1, resolvedModel2 }
+        };
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), localization,
+            previewLoader: fakeLoader,
+            materialTextureBindingService: null);
+
+        // Act
+        viewModel.SelectedAsset = asset;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null) await execution;
+
+        // Reset and trigger single manual mesh load
+        viewModel.LoadPreviewCommand.Execute(resolvedModel2);
+        execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null) await execution;
+
+        // Assert - should load ONLY resolvedModel2
+        Assert.NotNull(fakeLoader.LastRequest);
+        Assert.Single(fakeLoader.LastRequest.ModelPaths);
+        Assert.Equal("/path/mesh2.o3d", fakeLoader.LastRequest.ModelPaths[0]);
+    }
+
+    [Fact]
+    public async Task SelectedAsset_Changed_AutoPreviewPrioritizesResolvedO3dOverDirectX()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        var localization = new LocalizationService();
+
+        var resolvedModelX = new OmsiModelReference("mesh1.x", "/path/mesh1.x", true, OmsiModelReferenceResolutionStatus.Resolved);
+        var resolvedModelO3d = new OmsiModelReference("mesh2.o3d", "/path/mesh2.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        var asset = new OmsiAsset
+        {
+            RelativePath = "scenery/object.sco",
+            ModelReferences = new List<OmsiModelReference> { resolvedModelX, resolvedModelO3d }
+        };
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), localization,
+            previewLoader: fakeLoader,
+            materialTextureBindingService: null);
+
+        // Act
+        viewModel.SelectedAsset = asset;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null) await execution;
+
+        // Assert - should select and prioritize resolved O3D reference
+        Assert.Same(resolvedModelO3d, viewModel.SelectedPreviewModelReference);
+    }
+
+    [Fact]
+    public async Task SelectedAsset_Changed_AutoPreviewSelectsDirectXIfNoO3dExists()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        var localization = new LocalizationService();
+
+        var resolvedModelX = new OmsiModelReference("mesh1.x", "/path/mesh1.x", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        var asset = new OmsiAsset
+        {
+            RelativePath = "scenery/object.sco",
+            ModelReferences = new List<OmsiModelReference> { resolvedModelX }
+        };
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), localization,
+            previewLoader: fakeLoader,
+            materialTextureBindingService: null);
+
+        // Act
+        viewModel.SelectedAsset = asset;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null) await execution;
+
+        // Assert - should select resolved .x reference as candidate
+        Assert.Same(resolvedModelX, viewModel.SelectedPreviewModelReference);
+    }
+
+    [Fact]
+    public async Task SelectedAsset_Changed_SelectsUppercaseXFormat()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        var localization = new LocalizationService();
+
+        var resolvedModelUppercaseX = new OmsiModelReference("mesh1.X", "/path/mesh1.X", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        var asset = new OmsiAsset
+        {
+            RelativePath = "scenery/object.sco",
+            ModelReferences = new List<OmsiModelReference> { resolvedModelUppercaseX }
+        };
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), localization,
+            previewLoader: fakeLoader,
+            materialTextureBindingService: null);
+
+        // Act
+        viewModel.SelectedAsset = asset;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null) await execution;
+
+        // Assert - case-insensitive check selects .X reference
+        Assert.Same(resolvedModelUppercaseX, viewModel.SelectedPreviewModelReference);
+    }
+
+    [Fact]
+    public async Task Preview_TextureBindingDiagnosticsAndGuardrails_MergeIntoPreviewDiagnostics()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        
+        var expectedResult = new AssetPreviewResult
+        {
+            Status = AssetPreviewStatus.Success,
+            MeshData = new O3dMeshData
+            {
+                Vertices = new List<O3dVertex> { new() { X = 0, Y = 0, Z = 0 } },
+                Triangles = new List<O3dTriangle> { new() { V0 = 0, V1 = 0, V2 = 0, MaterialSlotIndex = 0 } },
+                MaterialSlots = new List<O3dMaterialSlot> { new() { MaterialName = "Mat0", TextureReference = "tex0.png" } }
+            },
+            Diagnostics = new List<O3dDiagnostic>
+            {
+                new() { Severity = O3dDiagnosticSeverity.Warning, Code = O3dDiagnosticCode.SafetyLimitExceeded, Message = "Vertices limit warning" }
+            }
+        };
+        
+        fakeLoader.LoadFunc = (req, token) => Task.FromResult(expectedResult);
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            previewLoader: fakeLoader,
+            materialTextureBindingService: new VMDiagFakeBindingService());
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        // Act
+        viewModel.SelectedPreviewModelReference = modelRef;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null)
+        {
+            await execution;
+        }
+
+        // Assert
+        Assert.True(viewModel.HasPreviewDiagnostics);
+        // Expecting 2 diagnostics: 1 from loader, 1 from binding service
+        Assert.Equal(2, viewModel.PreviewDiagnostics.Count);
+        Assert.Contains(viewModel.PreviewDiagnostics, d => d.Message == "Vertices limit warning");
+        Assert.Contains(viewModel.PreviewDiagnostics, d => d.Message == "Texture budget exceeded");
+    }
+
+    private class VMDiagFakeBindingService : IMaterialTextureBindingService
+    {
+        public Task<IReadOnlyList<MaterialTextureBinding>> BindAsync(O3dMeshData meshData, string modelFilePath, string sceneryObjectsRoot, CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<MaterialTextureBinding> result = new List<MaterialTextureBinding>
+            {
+                new()
+                {
+                    MaterialIndex = 0,
+                    MaterialName = "Mat0",
+                    TextureReference = "tex0.png",
+                    Status = TextureBindingStatus.TooLarge,
+                    Diagnostics = new List<O3dDiagnostic>
+                    {
+                        new() { Severity = O3dDiagnosticSeverity.Warning, Code = O3dDiagnosticCode.SafetyLimitExceeded, Message = "Texture budget exceeded" }
+                    }
+                }
+            };
+            return Task.FromResult(result);
+        }
     }
 }

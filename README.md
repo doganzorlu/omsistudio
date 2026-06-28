@@ -69,16 +69,19 @@ Each layer has a corresponding isolated test project to enforce clean dependency
 *   **Dynamic Localization**: The UI language is Turkish by default, switchable dynamically to English in runtime.
 *   **Persistent Settings**: Stores the last successfully scanned root path and active language to a local JSON settings file.
 *   **Manifest-Only Export**: Allows users to select an asset and write a deterministic `[sco_filename]_manifest.json` file summarizing asset metadata to their chosen target output directory.
-*   **3D Viewport Preview**: Displays software-rendered solid/wireframe previews of supported O3D files with orbit/zoom camera controls, bounding box overlay, material slot color swatches, and size summary. Includes performance guardrails to skip rendering huge models. (Note: OpenGL preview remains experimental).
+*   **3D Viewport Preview**: Displays software-rendered previews of scenery object files (.sco) supporting multiple resolved meshes (.o3d), applied relative translations/rotations/scales, texture image binding with nearest/bilinear filtering, transparency/alpha discard blending, ambient/directional flat shading, visual mode toggles (Textured Solid, Textured + Wireframe, Solid Color, Solid Color + Wireframe, Wireframe), bounding box overlay, material list swatches, and performance budget checks (vertices, triangles, materials, texture count, pixel size, viewport rasterizer fallback) to protect application stability. (Note: OpenGL preview remains experimental).
 
 ---
 
 ## 🎯 Intentionally Not Implemented (Future Scope)
 
+> [!NOTE]
+> The application is currently viewer/preview focused. The dual-direction O3D Converter module is planned as the next active development module.
+
 > [!WARNING]
 > The following features **DO NOT** exist in the codebase yet and are reserved for future development spikes:
 > *   **No 3D Model Conversion/Export**: Formats like glTF, OBJ, or FBX conversion and geometry mesh creation are currently unsupported placeholder targets.
-> *   **No Real Texture Mapping**: Displaying actual texture bitmap images mapped on the faces via UV coordinates is out of scope. We utilize a texture-aware deterministic solid flat color preview.
+> *   **Binary/Advanced DirectX .x Parser**: Text-based DirectX `.x` files are supported. However, binary or compressed `.x` formats, skeletally animated meshes, and hierarchical frames are not supported yet.
 
 For format research details on the binary `.o3d` structures, see the spike research document: [O3D_FORMAT_RESEARCH.md](docs/spikes/O3D_FORMAT_RESEARCH.md).
 
@@ -95,7 +98,8 @@ For the long-term vision, architectural modules, and technical scope of OmsiStud
 *   [PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md): OmsiStudio long-term vision, modular structures, and milestones.
 *   [OMSISTUDIO_EPIC_BACKLOG.md](docs/backlog/OMSISTUDIO_EPIC_BACKLOG.md): Epic roadmap and tracking backlog.
 *   [ASSET_PREVIEW_SYSTEM_EPIC.md](docs/backlog/ASSET_PREVIEW_SYSTEM_EPIC.md): Completed software-rendered solid/wireframe asset preview epic.
-*   [REALISTIC_ASSET_PREVIEW_EPIC.md](docs/backlog/REALISTIC_ASSET_PREVIEW_EPIC.md): Planned epic for realistic, texture-mapped multi-mesh asset previews (future scope).
+*   [REALISTIC_ASSET_PREVIEW_EPIC.md](docs/backlog/REALISTIC_ASSET_PREVIEW_EPIC.md): Completed epic for realistic, texture-mapped multi-mesh asset previews.
+*   [O3D_CONVERTER_EPIC.md](docs/backlog/O3D_CONVERTER_EPIC.md): Planned epic for dual-direction O3D and SCO conversion and Blender round-trip workflows.
 *   [DOMAIN_MODEL.md](docs/domain/DOMAIN_MODEL.md): Deep-dive into domain entities and constraints.
 *   [O3D_FORMAT_RESEARCH.md](docs/spikes/O3D_FORMAT_RESEARCH.md): Research spike documentation regarding future binary mesh format supports.
 *   [AI_Governance Docs Folder](docs/AI_Governance/): Repository discovery rules, SDLC, templates, and agent guidelines.

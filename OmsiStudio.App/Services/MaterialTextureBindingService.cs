@@ -84,7 +84,8 @@ public class MaterialTextureBindingService : IMaterialTextureBindingService
             var textureRef = slot.TextureReference;
 
             // 2. Resolve Texture Reference Path
-            var resolvedTexture = _textureResolver.Resolve(textureRef, modelFilePath, sceneryObjectsRoot);
+            string resolveModelPath = !string.IsNullOrEmpty(slot.SourceModelPath) ? slot.SourceModelPath : modelFilePath;
+            var resolvedTexture = _textureResolver.Resolve(textureRef, resolveModelPath, sceneryObjectsRoot);
 
             if (resolvedTexture.ResolutionStatus == OmsiTextureReferenceResolutionStatus.Missing)
             {
@@ -127,7 +128,72 @@ public class MaterialTextureBindingService : IMaterialTextureBindingService
             // 3. Load & Decode Texture
             if (resolvedTexture.ResolutionStatus == OmsiTextureReferenceResolutionStatus.Resolved && resolvedTexture.ResolvedPath != null)
             {
+                // Calculate current bindings metrics by unique resolved texture path (case-insensitive)
+                var uniquePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                long currentTotalPixels = 0;
+                foreach (var b in bindings)
+                {
+                    if (b.Status == TextureBindingStatus.Bound && b.Image != null && b.ResolvedTexture?.ResolvedPath != null)
+                    {
+                        if (uniquePaths.Add(b.ResolvedTexture.ResolvedPath))
+                        {
+                            currentTotalPixels += (long)b.Image.Width * b.Image.Height;
+                        }
+                    }
+                }
+
+                int currentBoundCount = uniquePaths.Count;
+                bool alreadyBound = uniquePaths.Contains(resolvedTexture.ResolvedPath);
+
+                if (!alreadyBound && currentBoundCount >= PreviewPerformancePolicy.MaxTextureBindings)
+                {
+                    bindings.Add(new MaterialTextureBinding
+                    {
+                        MaterialIndex = materialIndex,
+                        MaterialName = materialName,
+                        TextureReference = textureRef,
+                        ResolvedTexture = resolvedTexture,
+                        Status = TextureBindingStatus.TooLarge,
+                        Diagnostics = new List<O3dDiagnostic>
+                        {
+                            new O3dDiagnostic
+                            {
+                                Severity = O3dDiagnosticSeverity.Warning,
+                                Code = O3dDiagnosticCode.SafetyLimitExceeded,
+                                Message = $"[Material {materialIndex} - {materialName}] Texture binding skipped: Exceeded MaxTextureBindings ({PreviewPerformancePolicy.MaxTextureBindings})."
+                            }
+                        }
+                    });
+                    continue;
+                }
+
                 var loaderResult = await _imageCache.GetOrLoadAsync(resolvedTexture.ResolvedPath, cancellationToken);
+
+                if (!alreadyBound && loaderResult.Status == TextureLoadStatus.Success && loaderResult.Image != null)
+                {
+                    long nextPixels = (long)loaderResult.Image.Width * loaderResult.Image.Height;
+                    if (currentTotalPixels + nextPixels > PreviewPerformancePolicy.MaxTotalTexturePixels)
+                    {
+                        bindings.Add(new MaterialTextureBinding
+                        {
+                            MaterialIndex = materialIndex,
+                            MaterialName = materialName,
+                            TextureReference = textureRef,
+                            ResolvedTexture = resolvedTexture,
+                            Status = TextureBindingStatus.TooLarge,
+                            Diagnostics = new List<O3dDiagnostic>
+                            {
+                                new O3dDiagnostic
+                                {
+                                    Severity = O3dDiagnosticSeverity.Warning,
+                                    Code = O3dDiagnosticCode.SafetyLimitExceeded,
+                                    Message = $"[Material {materialIndex} - {materialName}] Texture binding skipped: Total texture size exceeds MaxTotalTexturePixels ({PreviewPerformancePolicy.MaxTotalTexturePixels})."
+                                }
+                            }
+                        });
+                        continue;
+                    }
+                }
 
                 var diagnostics = new List<O3dDiagnostic>();
                 foreach (var diag in loaderResult.Diagnostics)

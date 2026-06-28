@@ -14,4 +14,10 @@ public sealed record O3dMaterialSlot
     /// Gets the optional texture reference path associated with this material slot.
     /// </summary>
     public string? TextureReference { get; init; }
+
+    /// <summary>
+    /// Gets the optional source model file path from which this material slot was loaded.
+    /// Used in multi-mesh scenes to locate/resolve the texture relative to the correct folder.
+    /// </summary>
+    public string? SourceModelPath { get; init; }
 }

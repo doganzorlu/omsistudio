@@ -178,7 +178,7 @@ public class SoftwareWireframeViewportControl : Control
     /// </summary>
     public static readonly StyledProperty<SoftwareViewportVisualMode> VisualModeProperty =
         AvaloniaProperty.Register<SoftwareWireframeViewportControl, SoftwareViewportVisualMode>(
-            nameof(VisualMode), defaultValue: SoftwareViewportVisualMode.Solid);
+            nameof(VisualMode), defaultValue: SoftwareViewportVisualMode.TexturedSolid);
 
     /// <summary>
     /// Gets or sets the visual mode for rendering (Wireframe, Solid, or Solid + Wireframe).
@@ -433,18 +433,44 @@ public class SoftwareWireframeViewportControl : Control
 
             if (w > 0 && h > 0)
             {
-                byte[] cpuBuffer = new byte[w * h * 4];
-                // Fill background slate color (#1a1a1e)
-                for (int idx = 0; idx < cpuBuffer.Length; idx += 4)
+                if ((long)w * h > OmsiStudio.Core.Assets.PreviewPerformancePolicy.MaxViewportRasterPixels)
                 {
-                    cpuBuffer[idx] = 26;     // R
-                    cpuBuffer[idx + 1] = 26; // G
-                    cpuBuffer[idx + 2] = 30; // B
-                    cpuBuffer[idx + 3] = 255;// A
-                }
+                    // Viewport is too large! Fall back to rendering only wireframe, without allocating cpuBuffer!
+                    foreach (var item in sortedTriangles)
+                    {
+                        var tri = item.Triangle;
+                        var pt0 = projectedPoints[tri.V0];
+                        var pt1 = projectedPoints[tri.V1];
+                        var pt2 = projectedPoints[tri.V2];
 
-                foreach (var item in sortedTriangles)
+                        var p0 = new Point(pt0.X, pt0.Y);
+                        var p1 = new Point(pt1.X, pt1.Y);
+                        var p2 = new Point(pt2.X, pt2.Y);
+
+                        context?.DrawLine(wireframePen, p0, p1);
+                        context?.DrawLine(wireframePen, p1, p2);
+                        context?.DrawLine(wireframePen, p2, p0);
+                    }
+
+                    // Reset diagnostic stats so they reflect the fallback (zero textured triangles rendered)
+                    texturedCount = 0;
+                    fallbackCount = 0;
+                    renderedCount = 0;
+                }
+                else
                 {
+                    byte[] cpuBuffer = new byte[w * h * 4];
+                    // Fill background slate color (#1a1a1e)
+                    for (int idx = 0; idx < cpuBuffer.Length; idx += 4)
+                    {
+                        cpuBuffer[idx] = 26;     // R
+                        cpuBuffer[idx + 1] = 26; // G
+                        cpuBuffer[idx + 2] = 30; // B
+                        cpuBuffer[idx + 3] = 255;// A
+                    }
+
+                    foreach (var item in sortedTriangles)
+                    {
                     var tri = item.Triangle;
                     var pt0 = projectedPoints[tri.V0];
                     var pt1 = projectedPoints[tri.V1];
@@ -462,14 +488,11 @@ public class SoftwareWireframeViewportControl : Control
                     Vector3 crossNormal = MaterialColorSelector.CalculateViewSpaceNormal(v0_view, v1_view, v2_view);
 
                     // Compute flat normal shading intensity factor
-                    float intensity = 0f;
-                    float len = crossNormal.Length();
-                    if (len > 1e-6f)
-                    {
-                        Vector3 normalized = crossNormal / len;
-                        intensity = Math.Abs(normalized.Z);
-                    }
-                    float intensityFactor = 0.4f + 0.6f * intensity;
+                    float intensityFactor = SoftwareLightingCalculator.ComputeIntensity(
+                        crossNormal,
+                        new Vector3(0f, 0f, 1f),
+                        new Vector3(0.3f, 0.5f, 0.824f)
+                    );
 
                     renderedCount++;
                     TextureImageData? texture = null;
@@ -478,7 +501,8 @@ public class SoftwareWireframeViewportControl : Control
                     float u2 = 0f, v2 = 0f;
 
                     bool isTextured = false;
-                    if (tri.MaterialSlotIndex >= 0 && mesh.MaterialSlots != null && tri.MaterialSlotIndex < mesh.MaterialSlots.Count)
+                    bool skipTexture = VisualMode == SoftwareViewportVisualMode.SolidColor || VisualMode == SoftwareViewportVisualMode.SolidColorWireframe;
+                    if (!skipTexture && tri.MaterialSlotIndex >= 0 && mesh.MaterialSlots != null && tri.MaterialSlotIndex < mesh.MaterialSlots.Count)
                     {
                         var binding = TextureBindings?.FirstOrDefault(b => b.MaterialIndex == tri.MaterialSlotIndex);
                         if (binding != null && binding.Status == TextureBindingStatus.Bound && binding.Image != null)
@@ -530,7 +554,8 @@ public class SoftwareWireframeViewportControl : Control
                             u1, v1,
                             u2, v2,
                             texture,
-                            intensityFactor
+                            intensityFactor,
+                            alphaThreshold: 8
                         );
                     }
                 }
@@ -554,9 +579,11 @@ public class SoftwareWireframeViewportControl : Control
 
                     context.DrawImage(_renderBitmap, new Rect(0, 0, w, h), new Rect(0, 0, w, h));
                 }
+                }
 
-                // Draw wireframe overlay if Solid + Wireframe
-                if (VisualMode == SoftwareViewportVisualMode.SolidWireframe && context != null)
+                // Draw wireframe overlay if Textured + Wireframe or Solid Color + Wireframe
+                bool drawOverlay = VisualMode == SoftwareViewportVisualMode.TexturedWireframe || VisualMode == SoftwareViewportVisualMode.SolidColorWireframe;
+                if (drawOverlay && context != null && (long)w * h <= OmsiStudio.Core.Assets.PreviewPerformancePolicy.MaxViewportRasterPixels)
                 {
                     foreach (var item in sortedTriangles)
                     {

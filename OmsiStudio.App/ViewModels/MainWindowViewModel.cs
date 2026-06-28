@@ -35,6 +35,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IAssetPreviewLoader _previewLoader;
     private CancellationTokenSource? _previewCts;
     private readonly object _previewLock = new();
+    private bool _isPreviewingSingleMesh;
     private readonly IMaterialTextureBindingService? _materialTextureBindingService;
     [ObservableProperty]
     private IRendererHost _rendererHost;
@@ -215,16 +216,39 @@ public partial class MainWindowViewModel : ViewModelBase
 
         OnPropertyChanged(nameof(HasSelectedAssetTextureReferences));
         OnPropertyChanged(nameof(HasNoSelectedAssetTextureReferences));
+        _isPreviewingSingleMesh = false;
 
         OmsiModelReference? firstResolved = null;
         if (value?.ModelReferences != null)
         {
+            // 1. Prioritize resolved .o3d mesh
             foreach (var modelRef in value.ModelReferences)
             {
                 if (modelRef != null && modelRef.ResolutionStatus == OmsiModelReferenceResolutionStatus.Resolved)
                 {
-                    firstResolved = modelRef;
-                    break;
+                    string? pathToCheck = !string.IsNullOrEmpty(modelRef.ResolvedPath) ? modelRef.ResolvedPath : modelRef.MeshPath;
+                    if (OmsiMeshFormatHelper.DetectFormat(pathToCheck) == OmsiMeshFormat.O3d)
+                    {
+                        firstResolved = modelRef;
+                        break;
+                    }
+                }
+            }
+
+            // 2. Fallback to resolved .x mesh if no resolved .o3d found
+            if (firstResolved == null)
+            {
+                foreach (var modelRef in value.ModelReferences)
+                {
+                    if (modelRef != null && modelRef.ResolutionStatus == OmsiModelReferenceResolutionStatus.Resolved)
+                    {
+                        string? pathToCheck = !string.IsNullOrEmpty(modelRef.ResolvedPath) ? modelRef.ResolvedPath : modelRef.MeshPath;
+                        if (OmsiMeshFormatHelper.DetectFormat(pathToCheck) == OmsiMeshFormat.DirectX)
+                        {
+                            firstResolved = modelRef;
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -368,14 +392,14 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(VisualModeInt))]
-    private SoftwareViewportVisualMode _visualMode = SoftwareViewportVisualMode.Solid;
+    private SoftwareViewportVisualMode _visualMode = SoftwareViewportVisualMode.TexturedSolid;
 
     public int VisualModeInt
     {
         get => (int)VisualMode;
         set
         {
-            if (value >= 0 && value <= 2)
+            if (value >= 0 && value <= 4)
             {
                 VisualMode = (SoftwareViewportVisualMode)value;
             }
@@ -550,6 +574,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         if (modelReference != null)
         {
+            _isPreviewingSingleMesh = true;
             if (SelectedPreviewModelReference != modelReference)
             {
                 SelectedPreviewModelReference = modelReference;
@@ -577,10 +602,41 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
+            var modelPaths = new List<string>();
+            var modelRefs = new List<OmsiModelReference>();
+            if (!_isPreviewingSingleMesh && SelectedAsset?.ModelReferences != null)
+            {
+                foreach (var r in SelectedAsset.ModelReferences)
+                {
+                    if (r != null && r.ResolutionStatus == OmsiModelReferenceResolutionStatus.Resolved)
+                    {
+                        string? pathToCheck = !string.IsNullOrEmpty(r.ResolvedPath) ? r.ResolvedPath : r.MeshPath;
+                        var format = OmsiMeshFormatHelper.DetectFormat(pathToCheck);
+                        bool isValidFormat = format == OmsiMeshFormat.O3d || format == OmsiMeshFormat.DirectX;
+                        if (isValidFormat && !string.IsNullOrEmpty(r.ResolvedPath))
+                        {
+                            modelPaths.Add(r.ResolvedPath);
+                            modelRefs.Add(r);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                if (!string.IsNullOrEmpty(modelRef.ResolvedPath))
+                {
+                    modelPaths.Add(modelRef.ResolvedPath);
+                    modelRefs.Add(modelRef);
+                }
+            }
+
             var request = new AssetPreviewRequest
             {
                 AssetId = SelectedAsset?.RelativePath ?? string.Empty,
-                ModelPath = modelRef.ResolvedPath
+                ModelPath = modelRef.ResolvedPath,
+                ModelPaths = modelPaths,
+                ModelReferences = modelRefs,
+                ApplyModelTransforms = !_isPreviewingSingleMesh
             };
 
             var result = await _previewLoader.LoadAsync(request, token);
@@ -597,6 +653,19 @@ public partial class MainWindowViewModel : ViewModelBase
                         modelRef.ResolvedPath,
                         GetSceneryObjectsRoot(RootDirectory),
                         token);
+
+                    if (bindings != null && bindings.Count > 0)
+                    {
+                        var mergedDiagnostics = new List<O3dDiagnostic>(result.Diagnostics);
+                        foreach (var b in bindings)
+                        {
+                            if (b.Diagnostics != null)
+                            {
+                                mergedDiagnostics.AddRange(b.Diagnostics);
+                            }
+                        }
+                        result = result with { Diagnostics = mergedDiagnostics };
+                    }
                 }
                 catch (OperationCanceledException)
                 {

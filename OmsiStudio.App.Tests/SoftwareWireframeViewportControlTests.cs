@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using OmsiStudio.App.Services;
 using OmsiStudio.App.Services.Rendering;
 using OmsiStudio.App.Views;
 using OmsiStudio.Core.Assets;
@@ -20,7 +21,7 @@ public class SoftwareWireframeViewportControlTests
         Assert.Equal(-30f, control.CameraPitch);
         Assert.Equal(5f, control.CameraDistance);
         Assert.False(control.ShowBoundingBox);
-        Assert.Equal(SoftwareViewportVisualMode.Solid, control.VisualMode);
+        Assert.Equal(SoftwareViewportVisualMode.TexturedSolid, control.VisualMode);
     }
 
     [Fact]
@@ -42,7 +43,7 @@ public class SoftwareWireframeViewportControlTests
         control.CameraPitch = 45f;
         control.CameraDistance = 10f;
         control.ShowBoundingBox = true;
-        control.VisualMode = SoftwareViewportVisualMode.SolidWireframe;
+        control.VisualMode = SoftwareViewportVisualMode.TexturedWireframe;
 
         // Assert
         Assert.Same(mesh, control.MeshData);
@@ -50,7 +51,7 @@ public class SoftwareWireframeViewportControlTests
         Assert.Equal(45f, control.CameraPitch);
         Assert.Equal(10f, control.CameraDistance);
         Assert.True(control.ShowBoundingBox);
-        Assert.Equal(SoftwareViewportVisualMode.SolidWireframe, control.VisualMode);
+        Assert.Equal(SoftwareViewportVisualMode.TexturedWireframe, control.VisualMode);
     }
 
     [Fact]
@@ -159,7 +160,7 @@ public class SoftwareWireframeViewportControlTests
 
         control.MeshData = mesh;
         control.TextureBindings = bindings;
-        control.VisualMode = SoftwareViewportVisualMode.Solid;
+        control.VisualMode = SoftwareViewportVisualMode.TexturedSolid;
 
         // Act
         control.Render(null!);
@@ -197,7 +198,7 @@ public class SoftwareWireframeViewportControlTests
 
         control.MeshData = mesh;
         control.TextureBindings = null;
-        control.VisualMode = SoftwareViewportVisualMode.Solid;
+        control.VisualMode = SoftwareViewportVisualMode.TexturedSolid;
 
         // Act
         control.Render(null!);
@@ -270,5 +271,219 @@ public class SoftwareWireframeViewportControlTests
         // Act & Assert
         var ex = Record.Exception(() => control.Render(null!));
         Assert.Null(ex);
+    }
+
+    [Fact]
+    public void Render_ViewportPixelsExceedMaxViewportRasterPixels_DrawsOnlyWireframeFallbackWithoutCrash()
+    {
+        // Arrange
+        int originalLimit = PreviewPerformancePolicy.MaxViewportRasterPixels;
+        PreviewPerformancePolicy.MaxViewportRasterPixels = 10; // small limit to trigger violation
+
+        try
+        {
+            var control = new SoftwareWireframeViewportControl();
+            control.VisualMode = SoftwareViewportVisualMode.TexturedSolid;
+            control.Arrange(new Avalonia.Rect(0, 0, 5, 5)); // 5x5 = 25 pixels (> 10)
+
+            var mesh = new O3dMeshData
+            {
+                Vertices = new List<O3dVertex>
+                {
+                    new O3dVertex { X = 0f, Y = 0f, Z = 0f },
+                    new O3dVertex { X = 1f, Y = 0f, Z = 0f },
+                    new O3dVertex { X = 0f, Y = 1f, Z = 0f }
+                },
+                Triangles = new List<O3dTriangle>
+                {
+                    new O3dTriangle { V0 = 0, V1 = 1, V2 = 2 }
+                }
+            };
+            control.MeshData = mesh;
+
+            // Act & Assert
+            var ex = Record.Exception(() => control.Render(null!));
+            Assert.Null(ex);
+            
+            // Check that counters are reset due to fallback rendering
+            Assert.Equal(0, control.LastRenderedTriangleCount);
+            Assert.Equal(0, control.LastTexturedTriangleCount);
+            Assert.Equal(0, control.LastFallbackTriangleCount);
+        }
+        finally
+        {
+            PreviewPerformancePolicy.MaxViewportRasterPixels = originalLimit;
+        }
+    }
+
+    [Fact]
+    public void Render_SolidColorModeWithTextureBindings_IncrementsFallbackAndNotTextured()
+    {
+        // Arrange
+        var control = new SoftwareWireframeViewportControl();
+        control.Arrange(new Avalonia.Rect(0, 0, 100, 100));
+
+        var mesh = new O3dMeshData
+        {
+            Vertices = new List<O3dVertex>
+            {
+                new O3dVertex { X = 0f, Y = 0f, Z = 0f },
+                new O3dVertex { X = 1f, Y = 0f, Z = 0f },
+                new O3dVertex { X = 0f, Y = 1f, Z = 0f }
+            },
+            Triangles = new List<O3dTriangle>
+            {
+                new O3dTriangle { V0 = 0, V1 = 1, V2 = 2, MaterialSlotIndex = 0 }
+            },
+            MaterialSlots = new List<O3dMaterialSlot>
+            {
+                new O3dMaterialSlot { MaterialName = "Mat0", TextureReference = "tex0.png" }
+            }
+        };
+
+        var bindings = new List<MaterialTextureBinding>
+        {
+            new MaterialTextureBinding
+            {
+                MaterialIndex = 0,
+                MaterialName = "Mat0",
+                TextureReference = "tex0.png",
+                Status = TextureBindingStatus.Bound,
+                Image = new TextureImageData { Width = 2, Height = 2, PixelsRgba32 = new byte[2 * 2 * 4] }
+            }
+        };
+
+        control.MeshData = mesh;
+        control.TextureBindings = bindings;
+        control.VisualMode = SoftwareViewportVisualMode.SolidColor; // Force solid color rendering (ignore textures)
+
+        // Act
+        control.Render(null!);
+
+        // Assert
+        Assert.Equal(1, control.LastRenderedTriangleCount);
+        Assert.Equal(0, control.LastTexturedTriangleCount); // Ignored texture bindings!
+        Assert.Equal(1, control.LastFallbackTriangleCount); // Incremented fallback/material count!
+    }
+
+    [Fact]
+    public void Render_TexturedWireframeMode_RendersTexturedAndOverlayWithoutCrash()
+    {
+        // Arrange
+        var control = new SoftwareWireframeViewportControl();
+        control.Arrange(new Avalonia.Rect(0, 0, 100, 100));
+
+        var mesh = new O3dMeshData
+        {
+            Vertices = new List<O3dVertex>
+            {
+                new O3dVertex { X = 0f, Y = 0f, Z = 0f },
+                new O3dVertex { X = 1f, Y = 0f, Z = 0f },
+                new O3dVertex { X = 0f, Y = 1f, Z = 0f }
+            },
+            Triangles = new List<O3dTriangle>
+            {
+                new O3dTriangle { V0 = 0, V1 = 1, V2 = 2, MaterialSlotIndex = 0 }
+            },
+            MaterialSlots = new List<O3dMaterialSlot>
+            {
+                new O3dMaterialSlot { MaterialName = "Mat0", TextureReference = "tex0.png" }
+            }
+        };
+
+        var bindings = new List<MaterialTextureBinding>
+        {
+            new MaterialTextureBinding
+            {
+                MaterialIndex = 0,
+                MaterialName = "Mat0",
+                TextureReference = "tex0.png",
+                Status = TextureBindingStatus.Bound,
+                Image = new TextureImageData { Width = 2, Height = 2, PixelsRgba32 = new byte[2 * 2 * 4] }
+            }
+        };
+
+        control.MeshData = mesh;
+        control.TextureBindings = bindings;
+        control.VisualMode = SoftwareViewportVisualMode.TexturedWireframe;
+
+        // Act & Assert
+        var ex = Record.Exception(() => control.Render(null!));
+        Assert.Null(ex);
+        Assert.Equal(1, control.LastRenderedTriangleCount);
+        Assert.Equal(1, control.LastTexturedTriangleCount);
+        Assert.Equal(0, control.LastFallbackTriangleCount);
+    }
+
+    [Fact]
+    public void LocalizationKeys_TrAndEn_Exist()
+    {
+        // Arrange & Act
+        var locService = new LocalizationService();
+
+        // Assert Turkish
+        locService.SetCulture("tr-TR");
+        Assert.Equal("Dokulu Katı", locService["VisualModeTexturedSolid"]);
+        Assert.Equal("Dokulu + Tel Kafes", locService["VisualModeTexturedWireframe"]);
+        Assert.Equal("Katı Renk", locService["VisualModeSolidColor"]);
+        Assert.Equal("Katı Renk + Tel Kafes", locService["VisualModeSolidColorWireframe"]);
+        Assert.Equal("Tel Kafes", locService["VisualModeWireframe"]);
+
+        // Assert English
+        locService.SetCulture("en-US");
+        Assert.Equal("Textured Solid", locService["VisualModeTexturedSolid"]);
+        Assert.Equal("Textured + Wireframe", locService["VisualModeTexturedWireframe"]);
+        Assert.Equal("Solid Color", locService["VisualModeSolidColor"]);
+        Assert.Equal("Solid Color + Wireframe", locService["VisualModeSolidColorWireframe"]);
+        Assert.Equal("Wireframe", locService["VisualModeWireframe"]);
+    }
+
+    [Fact]
+    public void Render_SolidColorWireframeMode_RendersSolidColorsAndOverlayWithoutCrash()
+    {
+        // Arrange
+        var control = new SoftwareWireframeViewportControl();
+        control.Arrange(new Avalonia.Rect(0, 0, 100, 100));
+
+        var mesh = new O3dMeshData
+        {
+            Vertices = new List<O3dVertex>
+            {
+                new O3dVertex { X = 0f, Y = 0f, Z = 0f },
+                new O3dVertex { X = 1f, Y = 0f, Z = 0f },
+                new O3dVertex { X = 0f, Y = 1f, Z = 0f }
+            },
+            Triangles = new List<O3dTriangle>
+            {
+                new O3dTriangle { V0 = 0, V1 = 1, V2 = 2, MaterialSlotIndex = 0 }
+            },
+            MaterialSlots = new List<O3dMaterialSlot>
+            {
+                new O3dMaterialSlot { MaterialName = "Mat0", TextureReference = "tex0.png" }
+            }
+        };
+
+        var bindings = new List<MaterialTextureBinding>
+        {
+            new MaterialTextureBinding
+            {
+                MaterialIndex = 0,
+                MaterialName = "Mat0",
+                TextureReference = "tex0.png",
+                Status = TextureBindingStatus.Bound,
+                Image = new TextureImageData { Width = 2, Height = 2, PixelsRgba32 = new byte[2 * 2 * 4] }
+            }
+        };
+
+        control.MeshData = mesh;
+        control.TextureBindings = bindings;
+        control.VisualMode = SoftwareViewportVisualMode.SolidColorWireframe;
+
+        // Act & Assert
+        var ex = Record.Exception(() => control.Render(null!));
+        Assert.Null(ex);
+        Assert.Equal(1, control.LastRenderedTriangleCount);
+        Assert.Equal(0, control.LastTexturedTriangleCount); // Should skip texture path
+        Assert.Equal(1, control.LastFallbackTriangleCount);
     }
 }

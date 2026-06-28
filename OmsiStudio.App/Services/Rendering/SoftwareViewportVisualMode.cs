@@ -5,7 +5,9 @@ namespace OmsiStudio.App.Services.Rendering;
 /// </summary>
 public enum SoftwareViewportVisualMode
 {
-    Wireframe,
-    Solid,
-    SolidWireframe
+    TexturedSolid = 0,
+    TexturedWireframe = 1,
+    SolidColor = 2,
+    SolidColorWireframe = 3,
+    Wireframe = 4
 }

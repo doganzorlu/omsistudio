@@ -380,7 +380,118 @@ public class SoftwareTexturedTriangleRasterizerTests
         );
 
         // Assert - Should wrap to (0.0, 0.0) which maps to texel (0, 0)
+        // Assert - Should wrap to (0.0, 0.0) which maps to texel (0, 0)
         int index = (3 * w + 3) * 4;
         Assert.True(buffer[index + 3] > 0);
+    }
+
+    [Fact]
+    public void Rasterize_AlphaBelowThreshold_DiscardsPixel()
+    {
+        // Arrange
+        int w = 10;
+        int h = 10;
+        byte[] buffer = new byte[w * h * 4];
+        
+        byte[] pixels = new byte[2 * 2 * 4];
+        // Set all alpha to 5
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            pixels[i] = 255; pixels[i + 1] = 0; pixels[i + 2] = 0; pixels[i + 3] = 5;
+        }
+        var texture = new TextureImageData { Width = 2, Height = 2, PixelsRgba32 = pixels };
+
+        // Act - Call with threshold = 10
+        SoftwareTexturedTriangleRasterizer.Rasterize(
+            buffer, w, h,
+            0f, 0f,
+            10f, 0f,
+            0f, 10f,
+            0f, 0f,
+            1f, 0f,
+            0f, 1f,
+            texture,
+            1f,
+            TextureSamplingMode.Nearest,
+            alphaThreshold: 10
+        );
+
+        // Assert - Discarded since 5 < 10, target buffer remains entirely transparent/zero
+        int index = (3 * w + 3) * 4;
+        Assert.Equal(0, buffer[index]);
+        Assert.Equal(0, buffer[index + 3]);
+    }
+
+    [Fact]
+    public void Rasterize_AlphaAboveThreshold_KeepsAndBlendsPixel()
+    {
+        // Arrange
+        int w = 10;
+        int h = 10;
+        byte[] buffer = new byte[w * h * 4];
+
+        byte[] pixels = new byte[2 * 2 * 4];
+        // Set all alpha to 20
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            pixels[i] = 255; pixels[i + 1] = 0; pixels[i + 2] = 0; pixels[i + 3] = 20;
+        }
+        var texture = new TextureImageData { Width = 2, Height = 2, PixelsRgba32 = pixels };
+
+        // Act - Call with threshold = 10
+        SoftwareTexturedTriangleRasterizer.Rasterize(
+            buffer, w, h,
+            0f, 0f,
+            10f, 0f,
+            0f, 10f,
+            0f, 0f,
+            1f, 0f,
+            0f, 1f,
+            texture,
+            1f,
+            TextureSamplingMode.Nearest,
+            alphaThreshold: 10
+        );
+
+        // Assert - Kept since 20 >= 10
+        int index = (3 * w + 3) * 4;
+        Assert.Equal(255, buffer[index]);
+        Assert.Equal(20, buffer[index + 3]);
+    }
+
+    [Fact]
+    public void Rasterize_AlphaZero_DiscardsPixel()
+    {
+        // Arrange
+        int w = 10;
+        int h = 10;
+        byte[] buffer = new byte[w * h * 4];
+
+        byte[] pixels = new byte[2 * 2 * 4];
+        // Set all alpha to 0
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            pixels[i] = 255; pixels[i + 1] = 0; pixels[i + 2] = 0; pixels[i + 3] = 0;
+        }
+        var texture = new TextureImageData { Width = 2, Height = 2, PixelsRgba32 = pixels };
+
+        // Act - Call with default threshold (8)
+        SoftwareTexturedTriangleRasterizer.Rasterize(
+            buffer, w, h,
+            0f, 0f,
+            10f, 0f,
+            0f, 10f,
+            0f, 0f,
+            1f, 0f,
+            0f, 1f,
+            texture,
+            1f,
+            TextureSamplingMode.Nearest
+        );
+
+        // Assert - Discarded since 0 < 8
+        int index = (3 * w + 3) * 4;
+        Assert.Equal(0, buffer[index]);
+        Assert.Equal(0, buffer[index + 3]);
     }
 }

@@ -147,10 +147,21 @@ The realistic preview system must maintain stability and avoid memory depletion:
 > * OS-009-FIX-008A: Stabilized material thumbnail tests in headless runs by refactoring `MaterialDisplayItem.TextureThumbnail` from `Bitmap` to `IImage` interface and introducing a static `ThumbnailFactory` delegate hook. Inside tests, a mock non-rendering `DummyImage` class implementing `IImage` is registered to bypass Avalonia graphics platform initialization. Wrapped the `ThumbnailFactory` call inside a `try-catch` block to handle thrown test stub mock exceptions gracefully.
 > * OS-009-FIX-008B: Added localized "Not bound" / "Bağlanmadı" state for materials without loaded bindings. Integrated three testable debug auto-properties (`LastTexturedTriangleCount`, `LastFallbackTriangleCount`, `LastRenderedTriangleCount`) inside `SoftwareWireframeViewportControl.cs`. Tracked triangle drawing counts by resetting and updating these properties in both Solid and Wireframe mode loops. Refactored the `Render` method to run projections and update counters under headless (null context) environments without throwing exceptions. Displayed the debug counters in the `MainWindow.axaml` preview material panel. Added unit tests verifying counters under bound, unbound, and wireframe scenarios.
 > * OS-009-FIX-009A: Enclosed drawing primitives within a `context.PushClip(Rect)` using block inside `SoftwareWireframeViewportControl.Render` to clip wireframes/borders within control boundaries. Enlarged viewport layout inside `MainWindow.axaml` by increasing its Border minimum height from a fixed `Height="200"` to `MinHeight="420"`. Hided orbit/reset camera button overlays (`IsVisible="False"`) in XAML in favor of mouse drag/zoom gesture interactions. Changed default visual rendering mode in control property and view model backing fields to `Solid` (textured solid). Added auto preview load logic inside `OnSelectedAssetChanged` hook in `MainWindowViewModel.cs` to resolve the first resolved model reference and invoke `LoadPreviewCommand` automatically. Added unit tests for clipping and auto-load selection/cancellation.
+> * OS-009-FIX-009B: Updated the auto preview loader selection inside `MainWindowViewModel.OnSelectedAssetChanged` to enforce that only model references ending with `.o3d` (case-insensitive extension check on either `ResolvedPath` or `MeshPath`) are selected. Added unit tests verifying skipping of non-`.o3d` resolved references, uppercase `.O3D` extension matches, and preview state clearance when no valid `.o3d` resolved references are found.
+> * OS-009-TASK-009: Extended `AssetPreviewRequest` with `ModelPaths` to support multi-mesh loading requests. Rewrote `AssetPreviewLoader.LoadAsync` to load multiple `.o3d` references using `IO3dGeometryReader` and combine them into a single `O3dMeshData` by concatenating vertex lists, appending material slot lists, offsetting vertex index references in triangle definitions, and re-indexing material slot indices. Preserved exact single-model preview references, diagnostic severities, and error message structures for backward compatibility. Added private boolean state tracking `_isPreviewingSingleMesh` inside `MainWindowViewModel.cs` to distinguish between automatic multi-mesh scene previews and explicit manual single-mesh selections. Added comprehensive loader and view model integration unit tests covering offset indices, warning diagnostic accumulation on partially-failed loads, and full clear behaviors.
+> * OS-009-TASK-008C: Introduced the `OmsiMeshFormat` enum and helper class to identify `.o3d` and `.x` (DirectX) files. Designed and created the `IDirectXGeometryReader` interface contract alongside a default placeholder class `DirectXGeometryReader` that returns a recognized-but-not-implemented-yet status. Updated `AssetPreviewLoader` constructor to accept and store the DirectX reader, and update file extension validation and dispatcher routing to pass `.x` models to the DirectX reader. Integrated Turkish and English translations under the `"DirectXMeshParserPending"` key to return format recognized, parser pending diagnostic messages. Modified `MainWindowViewModel.cs` to allow both `.o3d` and `.x` references as candidates, prioritize `.o3d` selection, and fallback to `.x` auto-load. Added full unit tests for format detection (case-insensitive extension checks for `.x` and `.X`), parser pending diagnostics, priority candidate VM selection, and localized UI label assertions.
+> * OS-009-TASK-010: Created `OmsiMeshTransform` record carrying PosX/Y/Z, RotX/Y/Z, and ScaleX/Y/Z properties with a static `Identity` default fallback. Updated `OmsiModelReference` to store `Transform` and `TransformWarnings`. Refactored `ScoParser.cs` to parse `[new_pos]`, `[rot_x]`, `[rot_y]`, `[rot_z]`, `[rotx]`, `[roty]`, `[rotz]`, and `[scale]` blocks, registering warnings for malformed data and assigning properties to the corresponding `ScoMeshReference`. Extended `AssetPreviewRequest` to carry `ModelReferences` list. Updated `AssetPreviewLoader.LoadAsync` to apply transformations (scale, roll/pitch/yaw Euler rotations, translation offsets) to combined vertices. Handled fallback behavior to Identity when transforms are empty or failed to parse. Added full unit tests checking valid parsing, malformed warning fallbacks, transformed vertex calculations, triangle offset checks, and bounds validations.
+> * OS-009-FIX-010A: Mapped `ScoMeshReference.Warnings` into `OmsiModelReference.TransformWarnings` in `ScoFileParser.cs`. Preserved `TransformWarnings` when reconstructing resolved `OmsiModelReference` instances in `OmsiAssetScanner.cs`. Extended `AssetPreviewRequest` with the `ApplyModelTransforms` boolean property. Configured `MainWindowViewModel.cs` to set `ApplyModelTransforms = !_isPreviewingSingleMesh`. Refactored `AssetPreviewLoader.LoadAsync` to apply vertex transformations for single-mesh auto-previews whenever `ApplyModelTransforms` is `true`, while preserving identity/untransformed vertex layouts for manual explicit single-mesh previews. Added comprehensive unit tests for warning propagation in the parser, warning preservation in the scanner, and loaders transform/untransformed application.
+> * OS-009-TASK-011: Added `alphaThreshold` parameter (default `8`) to `SoftwareTexturedTriangleRasterizer.Rasterize`. Samples below this threshold are discarded via a quick `continue` check inside the pixel rendering loop to prevent low-alpha transparency artifacts. Modified `SoftwareWireframeViewportControl.cs` to explicitly pass `alphaThreshold: 8` into the rasterizer call for the textured solid rendering path. Preserved original source-over alpha blending and back-to-front depth sorting routines. Added unit tests verifying discard conditions for pixel alpha values below the threshold, preservation and blending for alpha values above or equal to the threshold, and safe execution within both solid and wireframe viewport render contexts.
+> * OS-009-TASK-012: Created the `SoftwareLightingCalculator` static class to compute flat ambient and directional light intensity factors, clamping final values within `[0.35, 1.15]`. Used a base ambient level of `0.45` to keep back-facing and low-light normals readable instead of rendering them completely black, and integrated a default directional light source vector. Assigned a deterministic `0.45` fallback factor to degenerate/zero normal vectors. Refactored the solid textured rendering path inside `SoftwareWireframeViewportControl.cs` to apply `SoftwareLightingCalculator.ComputeIntensity` view-space normal shading. Added unit tests covering light-facing, side, back-facing, and degenerate normal test scenarios.
+> * OS-009-TASK-013: Established a central static policy record `PreviewPerformancePolicy` carrying `MaxPreviewVertices`, `MaxPreviewTriangles`, `MaxPreviewMaterials`, `MaxTextureBindings`, `MaxTotalTexturePixels`, and `MaxViewportRasterPixels`. Integrated `AssetPreviewLoader.cs` properties with the central policy, preserving backward compatibility. Refactored `MaterialTextureBindingService.cs` to check limits before loading/decoding textures; when a limit is exceeded, further binds are skipped with a warning diagnostic and fall back to solid color rendering. Updated `MainWindowViewModel.cs` to merge texture binding diagnostics into the main preview diagnostics display. Refactored `SoftwareWireframeViewportControl.cs` to check `MaxViewportRasterPixels` and automatically fall back to line-based vector wireframe drawing (avoiding CPU pixel buffer allocations and rendering overhead) and reset viewport counters on extremely large windows. Added unit tests for binding limits, total pixel bounds, and viewport allocation fallbacks.
+> * OS-009-FIX-013A: Updated `MaterialTextureBindingService.cs` to track performance budgets (`MaxTextureBindings` and `MaxTotalTexturePixels`) by unique resolved texture paths (case-insensitive) instead of counting them per material slot. When a texture is shared across multiple material slots, it bypasses the budget checks and is bound directly without consuming additional budget, preventing premature limit exclusions. Added unit tests for same-path slot sharing (deduplication check), different-path slot counts, casing variations, and limit bounds.
+> * OS-009-TASK-014: Expanded the visual mode modes in `SoftwareViewportVisualMode` to include `TexturedSolid` (0), `TexturedWireframe` (1), `SolidColor` (2), `SolidColorWireframe` (3), and `Wireframe` (4), and default visual mode is set to `TexturedSolid` (0). Added combobox items inside `MainWindow.axaml` and bound them to `VisualModeInt` in `MainWindowViewModel.cs`. Extended translations for both Turkish and English languages in `LocalizationService.cs`. Updated `SoftwareWireframeViewportControl.cs` rendering to skip texture resolution entirely for `SolidColor` and `SolidColorWireframe` modes, and overlay wireframe outlines for `TexturedWireframe` and `SolidColorWireframe` modes. Updated unit tests for view model default mode index mapping, viewport rendering fallback counts under solid color mode, overlay logic, and localization key existence.
+> * OS-009-TASK-015: Completed full epic validation and developer documentation updates. Added specific unit tests for `SolidColorWireframe` rendering mode, no-texture fallback, integrated multi-mesh placement/casing/budgets, and visual diagnostics merging into MainWindowViewModel. Cleaned up stale descriptions in `README.md` and `OMSISTUDIO_EPIC_BACKLOG.md` (moving `OS-009-FEATURE-004` to completed tasks backlog and listing `OS-009-TASK-016` as planned/future scope).
+> * OS-009-TASK-016: Replaced the DirectX `.x` geometry reader placeholder with a fully-functional text-based DirectX `.x` parser. Parsed vertices, polygon faces (automatically performing fan triangulation for 4+ sided quads/polygons), UV texture coordinates (`MeshTextureCoords`), and material texture filename mappings (`MeshMaterialList`). Enforced safety limits check for vertices, faces, and material slots against `PreviewPerformancePolicy`, alongside maximum 50 MB file size constraints. Returns unsupported diagnostics for binary/compressed formats. Added unit tests for parsing, quads triangulation, UV/material slots mapping, safety limits, binary format rejection, and multi-mesh O3D + DirectX combinations.
+> * OS-009-FIX-016A: Hardened text DirectX `.x` parser logic to include asynchronous cancellation check routines (`CancellationToken` propagation inside stripping, tokenization, vertex, UV, and material loops), checked arithmetic limits validation (triangulation triangle safety count limits using cumulative sums), negative/malformed count checks, material index bounds verification ([0, nMaterials - 1]), and quote-aware comment stripping. Added unit tests for cancellation, fan triangulation limits bounds, invalid material index diagnostic, quote-aware comment parsing containing '#' and '//', and negative/malformed counts.
 
-
-
-### OS-009-TASK-009 - Multi-Mesh SCO Preview Composition
+### ✅ OS-009-TASK-009 - Multi-Mesh SCO Preview Composition
 *   **Purpose**: Group and render all meshes referenced by a single `.sco` file.
 *   **Area**: `OmsiStudio.App`
 *   **Acceptance Criteria**:
@@ -158,7 +169,7 @@ The realistic preview system must maintain stability and avoid memory depletion:
     *   Combine and render them together within the same viewport.
 *   **Strict Exclusions**: Scene graphs or generic hierarchical parent-child nodes.
 
-### OS-009-TASK-010 - Object Transform & Placement Handling
+### ✅ OS-009-TASK-010 - Object Transform & Placement Handling
 *   **Purpose**: Align meshes according to their offsets and rotations configured in the `.sco`.
 *   **Area**: `OmsiStudio.Core`, `OmsiStudio.App`
 *   **Acceptance Criteria**:
@@ -166,7 +177,7 @@ The realistic preview system must maintain stability and avoid memory depletion:
     *   Verify bounds calculations correctly wrap the entire combined transformed structure.
 *   **Strict Exclusions**: Dynamic editing/manipulation of offsets.
 
-### OS-009-TASK-011 - Alpha & Transparent Material Handling
+### ✅ OS-009-TASK-011 - Alpha & Transparent Material Handling
 *   **Purpose**: Support cutout transparency for grates, windows, or foliage.
 *   **Area**: `OmsiStudio.App` (Views/Rendering)
 *   **Acceptance Criteria**:
@@ -174,14 +185,14 @@ The realistic preview system must maintain stability and avoid memory depletion:
     *   Enable sorting of semi-transparent faces to render correctly back-to-front.
 *   **Strict Exclusions**: Complex screen-space ambient occlusion or translucent refraction.
 
-### OS-009-TASK-012 - Lighting & Material Approximation
+### ✅ OS-009-TASK-012 - Lighting & Material Approximation
 *   **Purpose**: Add basic shading to make the model surface appear 3D.
 *   **Area**: `OmsiStudio.App` (Views/Rendering)
 *   **Acceptance Criteria**:
     *   Combine face lighting normal vectors with texture colors to simulate ambient light.
 *   **Strict Exclusions**: Dynamic shadow mapping or ray tracing.
 
-### OS-009-TASK-013 - Realistic Preview Performance Guardrails
+### ✅ OS-009-TASK-013 - Realistic Preview Performance Guardrails
 *   **Purpose**: Establish limits for realistic rendering.
 *   **Area**: `OmsiStudio.App.Services`
 *   **Acceptance Criteria**:
@@ -189,20 +200,29 @@ The realistic preview system must maintain stability and avoid memory depletion:
     *   Gracefully fall back to solid rendering if limits are violated.
 *   **Strict Exclusions**: Arbitrary thresholds that cannot be customized.
 
-### OS-009-TASK-014 - Viewport UI Toggles
+### ✅ OS-009-TASK-014 - Viewport UI Toggles
 *   **Purpose**: Give the user controls over texture display.
 *   **Area**: `OmsiStudio.App`
 *   **Acceptance Criteria**:
     *   Add a visual settings checkbox/combobox options: Textured, Solid, Wireframe.
 *   **Strict Exclusions**: Persistent viewport state settings.
 
-### OS-009-TASK-015 - Realistic Preview Tests & Documentation
+### ✅ OS-009-TASK-015 - Realistic Preview Tests & Documentation
 *   **Purpose**: Finalize the epic with testing and complete developer documentation.
 *   **Area**: `OmsiStudio.App.Tests`, documentation folder
 *   **Acceptance Criteria**:
     *   Assert loader and renderer pipelines handle multiple texture resolutions, fallbacks, and boundary scenarios correctly.
     *   Update DOMAIN_MODEL.md with realistic preview specifications.
 *   **Strict Exclusions**: Verification of visual output accuracy (smoke rendering tests are sufficient).
+
+### ✅ OS-009-TASK-016 - DirectX .x Text Mesh Parser
+*   **Purpose**: Implement the geometry parser for DirectX `.x` files (both text format and binary format if applicable).
+*   **Area**: `OmsiStudio.Core.Assets`
+*   **Acceptance Criteria**:
+    *   Create a fully functional implementation of `IDirectXGeometryReader`.
+    *   Parse vertex coordinates, index buffers (triangles), normals, and texture coordinates from `.x` files.
+    *   Produce a correct `O3dMeshData` object representing the parsed mesh.
+*   **Strict Exclusions**: Complex animations, hierarchical skeleton structures, skinning, and non-mesh frames processing.
 
 ## Recommended Execution Order
 
@@ -221,3 +241,5 @@ The realistic preview system must maintain stability and avoid memory depletion:
 13. `OS-009-TASK-013`
 14. `OS-009-TASK-014`
 15. `OS-009-TASK-015`
+16. `OS-009-TASK-016`
+

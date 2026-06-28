@@ -647,6 +647,85 @@ valid.o3d
         Assert.Empty(result.Errors);
     }
 
+    [Fact]
+    public void ScoFileParser_ShouldMapMalformedTransformWarnings_ToOmsiModelReferenceTransformWarnings()
+    {
+        // Arrange
+        var parser = new ScoFileParser();
+        var tempFile = Path.Combine(_testTempDir, "test_warnings.sco");
+        File.WriteAllText(tempFile, @"
+[friendlyname]
+Test Object
+[mesh]
+model.o3d
+[new_pos]
+1.2
+invalid_y
+5.6
+");
+
+        try
+        {
+            // Act
+            var result = parser.Parse(tempFile, "test_warnings.sco", out var warnings);
+
+            // Assert
+            Assert.NotEmpty(warnings);
+            Assert.Single(result.ModelReferences);
+            Assert.NotEmpty(result.ModelReferences[0].TransformWarnings);
+            Assert.Contains("Malformed [new_pos] block values", result.ModelReferences[0].TransformWarnings[0]);
+        }
+        finally
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task Scanner_ShouldPreserveTransformWarnings_AfterRebuildingResolvedReferences()
+    {
+        // Arrange
+        var tempDir = Path.Combine(_testTempDir, "ScannerPreserve");
+        var sceneryObjectsDir = Path.Combine(tempDir, "Sceneryobjects");
+        Directory.CreateDirectory(sceneryObjectsDir);
+
+        var scoFile = Path.Combine(sceneryObjectsDir, "test.sco");
+        File.WriteAllText(scoFile, @"
+[friendlyname]
+Test Object
+[mesh]
+model.o3d
+[new_pos]
+1.2
+invalid_y
+5.6
+");
+
+        var modelFile = Path.Combine(sceneryObjectsDir, "model.o3d");
+        File.WriteAllText(modelFile, "dummy O3D content");
+
+        var parser = new ScoFileParser();
+        var mockReader = new MockO3dMetadataReader();
+        var scanner = new OmsiAssetScanner(parser, new OmsiDirectoryScanner(), new OmsiModelReferenceResolver(), mockReader);
+
+        try
+        {
+            // Act
+            var result = await scanner.ScanAsync(tempDir);
+
+            // Assert
+            Assert.Single(result.DiscoveredAssets);
+            var asset = result.DiscoveredAssets[0];
+            Assert.Single(asset.ModelReferences);
+            Assert.NotEmpty(asset.ModelReferences[0].TransformWarnings);
+            Assert.Contains("Malformed [new_pos] block values", asset.ModelReferences[0].TransformWarnings[0]);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true);
+        }
+    }
+
     private class MockO3dMetadataReader : IO3dMetadataReader
     {
         public int ReadCallCount { get; private set; }

@@ -182,4 +182,83 @@ public class ScoParserTests
         Assert.True(result.IsNoCollision);
         Assert.True(result.IsFixed);
     }
+
+    [Fact]
+    public void Parse_ShouldExtractMeshTransforms_WhenValid()
+    {
+        // Arrange
+        var lines = new[]
+        {
+            "[mesh]",
+            "model.o3d",
+            "[new_pos]",
+            "1.2",
+            "-3.4",
+            "5.6",
+            "[rot_x]",
+            "45",
+            "[rot_y]",
+            "-90.5",
+            "[rot_z]",
+            "180",
+            "[scale]",
+            "0.5",
+            "1.5",
+            "2.0"
+        };
+        var parser = new ScoParser();
+
+        // Act
+        var result = parser.Parse("test.sco", lines);
+
+        // Assert
+        Assert.Single(result.Meshes);
+        var mesh = result.Meshes[0];
+        Assert.Equal("model.o3d", mesh.MeshPath);
+        Assert.Equal(1.2, mesh.PosX);
+        Assert.Equal(-3.4, mesh.PosY);
+        Assert.Equal(5.6, mesh.PosZ);
+        Assert.Equal(45.0, mesh.RotX);
+        Assert.Equal(-90.5, mesh.RotY);
+        Assert.Equal(180.0, mesh.RotZ);
+        Assert.Equal(0.5, mesh.ScaleX);
+        Assert.Equal(1.5, mesh.ScaleY);
+        Assert.Equal(2.0, mesh.ScaleZ);
+        Assert.Empty(result.Warnings);
+        Assert.Empty(mesh.Warnings);
+    }
+
+    [Fact]
+    public void Parse_ShouldFallbackToIdentityAndWarn_WhenTransformIsMalformed()
+    {
+        // Arrange
+        var lines = new[]
+        {
+            "[mesh]",
+            "model.o3d",
+            "[new_pos]",
+            "1.2",
+            "invalid_y",
+            "5.6",
+            "[rot_x]",
+            "invalid_angle",
+            "[scale]",
+            "invalid_scale"
+        };
+        var parser = new ScoParser();
+
+        // Act
+        var result = parser.Parse("test.sco", lines);
+
+        // Assert
+        Assert.Single(result.Meshes);
+        var mesh = result.Meshes[0];
+        Assert.Equal(0.0, mesh.PosX); // Default/fallback
+        Assert.Equal(0.0, mesh.PosY);
+        Assert.Equal(0.0, mesh.PosZ);
+        Assert.Equal(0.0, mesh.RotX);
+        Assert.Equal(1.0, mesh.ScaleX);
+        Assert.NotEmpty(result.Warnings);
+        Assert.NotEmpty(mesh.Warnings);
+    }
 }

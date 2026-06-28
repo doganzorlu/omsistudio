@@ -32,7 +32,22 @@ public class ScoFileParser : IScoFileParser
             RelativePath = relativePath,
             Description = scoFile.Description,
             Groups = scoFile.Groups,
-            ModelReferences = scoFile.Meshes.Select(m => new OmsiModelReference(m.MeshPath)).ToList(),
+            ModelReferences = scoFile.Meshes.Select(m => new OmsiModelReference(m.MeshPath)
+            {
+                Transform = new OmsiMeshTransform
+                {
+                    PosX = m.PosX,
+                    PosY = m.PosY,
+                    PosZ = m.PosZ,
+                    RotX = m.RotX,
+                    RotY = m.RotY,
+                    RotZ = m.RotZ,
+                    ScaleX = m.ScaleX,
+                    ScaleY = m.ScaleY,
+                    ScaleZ = m.ScaleZ
+                },
+                TransformWarnings = m.Warnings
+            }).ToList(),
             TextureReferences = scoFile.TextureReferences
         };
     }

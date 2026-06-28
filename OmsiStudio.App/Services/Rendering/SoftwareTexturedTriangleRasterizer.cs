@@ -40,7 +40,8 @@ public static class SoftwareTexturedTriangleRasterizer
         float u2, float v2,
         TextureImageData texture,
         float intensity = 1f,
-        TextureSamplingMode samplingMode = TextureSamplingMode.Bilinear)
+        TextureSamplingMode samplingMode = TextureSamplingMode.Bilinear,
+        byte alphaThreshold = 8)
     {
         // 1. Guard against invalid inputs
         if (targetBuffer == null || targetWidth <= 0 || targetHeight <= 0)
@@ -205,6 +206,12 @@ public static class SoftwareTexturedTriangleRasterizer
                         finalG = (byte)Math.Clamp((int)(texPixels[texIndex + 1] * intensity), 0, 255);
                         finalB = (byte)Math.Clamp((int)(texPixels[texIndex + 2] * intensity), 0, 255);
                         finalA = texPixels[texIndex + 3];
+                    }
+
+                    // Alpha threshold discard check
+                    if (finalA < alphaThreshold)
+                    {
+                        continue;
                     }
 
                     // Source-over alpha blending onto target buffer

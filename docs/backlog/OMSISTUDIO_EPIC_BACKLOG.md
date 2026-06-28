@@ -122,6 +122,17 @@ This document outlines the roadmap, priority groups, and status of OmsiStudio ta
     *   *Area*: `OmsiStudio.App`, `OmsiStudio.Core`, `OmsiStudio.OmsiFormat`
     *   *Exclusions*: No glTF/OBJ/O3D export, no Blender integration, no package generation, no mesh editing, no real texture bitmap mapping, and no camera panning (Pan is future scope).
 
+### OS-009 - Realistic OMSI Asset Preview
+*   **OS-009-FEATURE-004 - Realistic OMSI Asset Preview**
+    *   *Purpose*: Render OMSI scenery objects textured with actual bitmap images mapped onto geometry faces, handling multi-mesh placements, relative translations/rotations/scales, transparency discard blending, ambient/directional flat normal shading, visual mode toggles, and performance guardrails.
+    *   *Area*: `OmsiStudio.App`, `OmsiStudio.Core`, `OmsiStudio.OmsiFormat`
+    *   *Exclusions*: No DirectX `.x` parser, no advanced material PBR, and no visual output file edits/save/exports.
+
+### OS-010 - O3D Converter Epic
+*   **OS-010-TASK-001 - Create O3D Converter Epic and Backlog**
+    *   *Purpose*: Document the converter architecture, task breakdown, exclusions, and safety policies.
+    *   *Area*: Project Documentation
+
 ---
 
 ## 📋 Planned Backlog
@@ -131,15 +142,14 @@ This document outlines the roadmap, priority groups, and status of OmsiStudio ta
 
 ### P2 - Conversion Hazırlığı
 *   **OS-010-FEATURE-005 - O3D Converter**
-    *   *Purpose*: Convert binary `.o3d` files to standard 3D formats (glTF, OBJ) and vice-versa.
-    *   *Area*: `OmsiStudio.Conversion`, `OmsiStudio.Core`
+    *   *Purpose*: Convert binary `.o3d` files to standard 3D formats (glTF, OBJ) and vice-versa, supporting a round-trip Blender workflow.
+    *   *Area*: `OmsiStudio.Conversion`, `OmsiStudio.Core`, `OmsiStudio.App`
+    *   *Epic*: [O3D_CONVERTER_EPIC.md](O3D_CONVERTER_EPIC.md)
 
 ### P2 - 3D/O3D Ön Hazırlık
-*   **OS-009-FEATURE-004 - Realistic OMSI Asset Preview**
-    *   *Purpose*: Render OMSI scenery objects textured with actual bitmap images mapped onto geometry faces, handling multi-mesh placements and transparency details.
-    *   *Area*: `OmsiStudio.App`, `OmsiStudio.Core`, `OmsiStudio.OmsiFormat`
-    *   *Exclusions*: No texture transcoding, no real-time shadows, and no PBR materials.
-    *   *Epic*: [REALISTIC_ASSET_PREVIEW_EPIC.md](REALISTIC_ASSET_PREVIEW_EPIC.md)
+*   **OS-009-TASK-016 - DirectX .x Text Mesh Parser**
+    *   *Purpose*: Implement the geometry parser for DirectX `.x` files (both text format and binary format if applicable) to fully support rendering DirectX meshes alongside O3D meshes.
+    *   *Area*: `OmsiStudio.Core`, `OmsiStudio.App`
 
 ### P3 - Governance / Project Hygiene
 *(No pending tasks)*

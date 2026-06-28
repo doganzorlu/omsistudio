@@ -30,12 +30,23 @@ Represents a reference to a 3D mesh model used by an asset, along with its resol
 *   `ResolvedPath` (string): The absolute path where the mesh was resolved on the local filesystem.
 *   `Exists` (bool): Indicates if the mesh file exists on disk.
 *   `ResolutionStatus` (OmsiModelReferenceResolutionStatus): The status of the path resolution.
+*   `Transform` (OmsiMeshTransform): The parsed translation, rotation, and scale parameters associated with the mesh in the scenery object.
+*   `TransformWarnings` (IReadOnlyList<string>): Warning messages generated during the parsing of this reference's transform block. These warnings are collected in `ScoFileParser`, preserved during resolution by `OmsiAssetScanner`, and reported as warning diagnostics during preview load by `AssetPreviewLoader`.
 *   `Metadata` (O3dMetadata?): Optional parsed O3D metadata statistics.
 *   `MetadataStatus` (O3dMetadataStatus): The outcome status of the metadata read.
 *   `MetadataDiagnostics` (IReadOnlyList<O3dDiagnostic>): Diagnostics/warnings produced during metadata parsing.
 *   `HasMetadata` (bool): Helper flag indicating if `Metadata` is not null.
 *   `HasNoMetadata` (bool): Helper flag indicating if `Metadata` is null.
 *   `HasMetadataDiagnostics` (bool): Helper flag indicating if there are warning/error diagnostics present.
+
+### OmsiMeshTransform
+
+Represents the placement transform parameters applied to model reference vertices during multi-mesh preview rendering.
+
+*   `PosX`, `PosY`, `PosZ` (double): Translation offsets along the X, Y, and Z axes (in meters).
+*   `RotX`, `RotY`, `RotZ` (double): Rotation angles around the X, Y, and Z axes (in degrees).
+*   `ScaleX`, `ScaleY`, `ScaleZ` (double): Scale factors along the X, Y, and Z axes. Defaults to 1.0.
+*   `Identity` (OmsiMeshTransform): Default static transform with zero offsets, zero rotations, and unit scale factors. Used as the identity fallback whenever transform parameters are missing or failed to parse.
 
 ### OmsiModelReferenceResolutionStatus (Enum)
 
@@ -289,6 +300,20 @@ Defines the service contract for parsing O3D model file geometry asynchronously.
 
 *   `ReadAsync(filePath, cancellationToken)`: Reads and parses version, encryption, vertex, face, and material geometry data from the specified O3D file asynchronously, returning an `O3dGeometryReadResult`. Supports cooperative cancellation.
 
+## DirectX Geometry Services
+
+### IDirectXGeometryReader
+
+Defines the service contract for parsing DirectX .x model file geometry asynchronously.
+
+*   `ReadAsync(filePath, cancellationToken)`: Reads and parses vertices, faces (triangulating 4+ sided polygons via fan triangulation), UV texture coordinates, and material texture filename mappings from text-based DirectX .x files. Returns an `O3dGeometryReadResult`.
+*   **Safety Limits**: Implements performance constraints (vertex, face, material count checks) based on `PreviewPerformancePolicy` using checked arithmetic (measuring generated triangle count limits rather than raw face count) and file size guardrails (maximum 50 MB) to prevent denial-of-service/allocations crash.
+*   **Count & Index Validation**: Asserts that all counts are non-negative, faces have at least 3 vertices, and material list assignments point to valid slot indices within range `[0, nMaterials - 1]`.
+*   **Quote-Aware Stripping**: Employs quote-aware comment stripping to preserve comment characters (`//` and `#`) when they reside inside quoted texture filenames.
+*   **Cancellation Support**: Propagates cooperative cancellation requests as `OperationCanceledException` at early exit points and during parsing loops.
+*   **Unsupported Formats**: Rejects binary or compressed DirectX .x formats and returns an `UnsupportedFormat` diagnostic.
+*   **Exclusions**: Skeletal animations, bone weights, hierarchical frame transforms, and advanced PBR materials are out of scope.
+
 ## Coordinate System & Winding Decisions
 
 *   **Raw Orientation**: Parsed geometry data is kept in its raw, original DirectX-space coordinate system (typically left-handed, Y-up/Z-forward). No coordinate transformations or basis modifications are performed at the format parser level.
@@ -326,9 +351,10 @@ Represents the status of the preview loader and viewport.
 *   `Cancelled`: Loading process was cancelled by the user.
 
 ### AssetPreviewRequest
-Represents an immutable request to parse and display a mesh.
+Represents an immutable request to parse and display one or more meshes.
 *   `AssetId` (string): The identifier of the scenery object.
 *   `ModelPath` (string): The path of the target `.o3d` mesh.
+*   `ModelPaths` (IReadOnlyList<string>): The list of resolved `.o3d` model paths to be combined into a multi-mesh preview.
 
 ### AssetPreviewResult
 Represents the outcome of a preview load request.
@@ -355,6 +381,7 @@ Represents user settings for the 3D viewport.
 ### IAssetPreviewLoader
 Defines the contract for asynchronously loading 3D asset previews from selected scenery object models.
 *   `LoadAsync(request, cancellationToken)`: Triggers O3D mesh reading, computes safe bounds, collects diagnostics, and returns an `AssetPreviewResult`. Supports cooperative cancellation.
+*   **Multi-Mesh Composition**: When multiple model paths are requested, `IAssetPreviewLoader` parses each valid `.o3d` file, combines their vertices, triangles, and material slots in order, applying correct vertex/material offsets and triangle re-indexing. If at least one mesh succeeds, the combined model is previewed successfully and failures are reported as warning diagnostics.
 
 ### IMeshBoundsCalculator
 Defines the contract for calculating the axis-aligned bounding box (AABB) of mesh geometry.
@@ -366,9 +393,11 @@ Defines the contract for calculating the axis-aligned bounding box (AABB) of mes
 
 ### SoftwareViewportVisualMode
 Defines the software viewport visual inspection modes:
-*   `Wireframe`: Renders face edges as lines without filling faces.
-*   `Solid`: Renders flat-shaded polygon faces back-to-front using Painters-Sorting, shaded dynamically by view-space normal intensity.
-*   `SolidWireframe` (Default): Combines filled solid faces with overlaid wireframe line outlines.
+*   `TexturedSolid` (Default): Renders flat-shaded polygon faces using bound textures where available, or fallback solid colors.
+*   `TexturedWireframe`: Combines textured/fallback solid rendering with overlaid wireframe outlines.
+*   `SolidColor`: Renders flat-shaded polygon faces using solid material colors only, ignoring all texture bindings.
+*   `SolidColorWireframe`: Combines solid color rendering with overlaid wireframe outlines.
+*   `Wireframe`: Renders only face edges as lines without filling faces or utilizing texture rasterization.
 
 ### MaterialDisplayItem
 A UI-safe model presenting localized metadata of a material slot:
@@ -377,11 +406,13 @@ A UI-safe model presenting localized metadata of a material slot:
 *   `ColorBrush` (IBrush): Deterministic preview brush computed by hashing the texture path or slot index.
 
 ## Preview Performance Guardrails
-To prevent UI blockages during software rendering of massive models, the system implements checked thresholds at the `IAssetPreviewLoader` level:
-*   `MaxPreviewVertices` (int): Maximum vertices allowed for rendering (default: 100,000).
-*   `MaxPreviewTriangles` (int): Maximum triangle faces allowed for rendering (default: 100,000).
-*   `MaxPreviewMaterials` (int): Maximum material slots allowed (default: 100).
-*   **Unsupported Fallback**: Exceeding any threshold causes preview skipping, returning `AssetPreviewStatus.Unsupported` with null `MeshData`/`Bounds`, and appends a warning diagnostic (e.g. `PreviewMeshTooLarge`).
+To prevent UI blockages and excessive memory consumption during software rendering of massive models, the system implements central performance limits defined in `PreviewPerformancePolicy`:
+*   `MaxPreviewVertices` (int): Maximum vertices allowed for rendering (default: 100,000). Exceeding causes the preview to be skipped, returning `AssetPreviewStatus.Unsupported` with a `SafetyLimitExceeded` diagnostic.
+*   `MaxPreviewTriangles` (int): Maximum triangle faces allowed for rendering (default: 100,000). Exceeding causes the preview to be skipped, returning `AssetPreviewStatus.Unsupported` with a `SafetyLimitExceeded` diagnostic.
+*   `MaxPreviewMaterials` (int): Maximum material slots allowed (default: 100). Exceeding causes the preview to be skipped, returning `AssetPreviewStatus.Unsupported` with a `SafetyLimitExceeded` diagnostic.
+*   `MaxTextureBindings` (int): Maximum unique successfully bound resolved texture paths (case-insensitive, default: 50). Exceeding triggers a warning diagnostic, skipping subsequent bindings and falling back to solid material color rendering. Material slots sharing identical texture files do not consume extra bindings budget.
+*   `MaxTotalTexturePixels` (long): Maximum total decoded texture pixels (sum of width * height across all unique resolved textures, default: 8192 * 8192). Exceeding triggers a warning diagnostic, skipping subsequent texture decodes and falling back to solid color rendering. Shared textures are counted only once.
+*   `MaxViewportRasterPixels` (int): Maximum viewport rasterizer pixel area (width * height, default: 3840 * 2160). Exceeding limits solid/textured rendering to avoid huge memory allocations, automatically falling back to wireframe-only line vector drawing in the viewport.
 
 ## OMSI Texture Resolution Services
 
@@ -450,6 +481,13 @@ Specifies the outcome status of the binding operation:
 
 ## Software Textured Triangle Rasterizer
 
+### SoftwareLightingCalculator
+A CPU-side shading utility that calculates face normal lighting intensity factors for the viewport rendering loop:
+*   **Ambient Light Contribution**: A base ambient level of `0.45` prevents back-facing or unlit surfaces from becoming completely black, keeping all geometry readable.
+*   **Directional Light Contribution**: Employs a flat directional light vector (pointing towards top-front-right) to calculate diffuse dot products (`normal · lightDir`) contributing up to `0.55`.
+*   **Clamp Bounds**: Final shading intensity is mathematically clamped to `[0.35, 1.15]` to ensure readable highlights and shadows without overexposure.
+*   **Degenerate Fallback**: Fallback value of `0.45` (ambient base) is deterministically assigned to zero or near-zero normal vectors to prevent rendering division errors.
+
 ### SoftwareTexturedTriangleRasterizer
 A UI-independent, static CPU-side utility class that performs textured triangle rasterization onto target RGBA byte buffers.
 *   **Texture Sampling Modes**: 
@@ -462,6 +500,7 @@ A UI-independent, static CPU-side utility class that performs textured triangle 
 *   **Wrap-Around Wrapping**: Repeating UV coordinate texture limits wrapper modulo calculation ensures seamless tiling mapping.
 *   **Intensity Shading**: Color shading multiplier is applied only to target color channels (RGB) preserving alpha values.
 *   **Safeties**: Excludes degenerate triangles, clips viewport out-of-bounds scanlines, and prevents crashes on malformed inputs.
+*   **Alpha Thresholding / Cutout**: Discards sampled pixels whose alpha values fall below a configurable threshold (defaults to `8/255`) to prevent low-alpha artifacts on transparent cutout surfaces (such as grates, window panes, and foliage). Pixels with alpha values at or above the threshold are blended onto the destination buffer using standard source-over blending.
 
 ## Software Viewport Texture Binding Integration
 The `SoftwareWireframeViewportControl` optionally binds and renders texture images onto solid model faces:

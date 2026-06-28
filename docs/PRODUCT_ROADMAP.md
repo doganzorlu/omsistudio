@@ -23,6 +23,7 @@ This document outlines the product direction, architecture modules, and long-ter
 
 ### 2. O3D Converter
 
+*   **Status**: Active/Planned Implementation Phase (linked with [O3D Converter Epic](backlog/O3D_CONVERTER_EPIC.md))
 *   **Goal**: Provide conversion, serialization, and generation utilities for OMSI binary `.o3d` mesh models to transition them to modern 3D formats (and vice-versa).
 *   **Primary Workflows**:
     *   Exporting asset manifests to structured JSON format.
@@ -32,7 +33,7 @@ This document outlines the product direction, architecture modules, and long-ter
 *   **Core File Formats**: `.o3d`, `.json` (Manifests), `.gltf`, `.obj`, `.fbx`
 *   **Dependencies**: `OmsiStudio.Core`, `OmsiStudio.Conversion`, `OmsiStudio.OmsiFormat`
 *   **Strict Exclusions for Current Phase**: Inline 3D mesh editing/modeling (conversion operations are batch or file-to-file).
-*   **Suggested Epic IDs**: `OS-004` (Conversion Domain & Manifests), `OS-006` (Manifest-Only Exports), `OS-010` (O3D to glTF Conversion Spike), `OS-011` (glTF to O3D Compiler Pipeline).
+*   **Suggested Epic IDs**: `OS-004` (Conversion Domain & Manifests), `OS-006` (Manifest-Only Exports), `OS-010` (O3D Converter Epic).
 
 ---
 
@@ -88,3 +89,4 @@ The active and completed epics are directly aligned to build up the foundations 
 
 ### O3D Converter Modules
 *   **O3D Converter Foundation (`OS-004`, `OS-006`)**: Sets up the export schemas, absolute output path validations, and JSON manifest generation contracts.
+*   **Dual-Direction Blender Workflow (`OS-010`)**: Planned implementation of the dual-direction workflow, intermediate scene graph, geometry compiler, and Blender round-trip format. Detailed tasks are tracked under [O3D_CONVERTER_EPIC.md](backlog/O3D_CONVERTER_EPIC.md).
