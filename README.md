@@ -52,7 +52,7 @@ graph TD
 
 ### 2. Test Projects (Split by Architecture Layer)
 Each layer has a corresponding isolated test project to enforce clean dependency mapping and clean-up execution:
-*   `OmsiStudio.Core.Tests` (Not currently created - Core domain model testing is covered by the existing tests)
+*   `OmsiStudio.Core.Tests`: Core domain/preview model contract tests.
 *   `OmsiStudio.OmsiFormat.Tests`: Mappings, fixture-based parsing, and path resolution tests.
 *   `OmsiStudio.Conversion.Tests`: Manifest serialization validation, and conversion contract tests (utilizing unique, test-isolated temp paths with automated teardown/cleanup).
 *   `OmsiStudio.App.Tests`: ViewModel behavior, localization properties, folder pick routing, and data binding change notification tests.
@@ -69,6 +69,7 @@ Each layer has a corresponding isolated test project to enforce clean dependency
 *   **Dynamic Localization**: The UI language is Turkish by default, switchable dynamically to English in runtime.
 *   **Persistent Settings**: Stores the last successfully scanned root path and active language to a local JSON settings file.
 *   **Manifest-Only Export**: Allows users to select an asset and write a deterministic `[sco_filename]_manifest.json` file summarizing asset metadata to their chosen target output directory.
+*   **3D Viewport Preview**: Displays software-rendered solid/wireframe previews of supported O3D files with orbit/zoom camera controls, bounding box overlay, material slot color swatches, and size summary. Includes performance guardrails to skip rendering huge models. (Note: OpenGL preview remains experimental).
 
 ---
 
@@ -76,16 +77,25 @@ Each layer has a corresponding isolated test project to enforce clean dependency
 
 > [!WARNING]
 > The following features **DO NOT** exist in the codebase yet and are reserved for future development spikes:
-> *   **No 3D Rendering / Viewport**: The UI does not display 3D models or render scenery objects.
 > *   **No 3D Model Conversion/Export**: Formats like glTF, OBJ, or FBX conversion and geometry mesh creation are currently unsupported placeholder targets.
+> *   **No Real Texture Mapping**: Displaying actual texture bitmap images mapped on the faces via UV coordinates is out of scope. We utilize a texture-aware deterministic solid flat color preview.
 
 For format research details on the binary `.o3d` structures, see the spike research document: [O3D_FORMAT_RESEARCH.md](docs/spikes/O3D_FORMAT_RESEARCH.md).
 
 ---
 
+## 🛣️ Product Direction
+
+For the long-term vision, architectural modules, and technical scope of OmsiStudio, see the [Product Roadmap](docs/PRODUCT_ROADMAP.md).
+
+---
+
 ## 📖 Key Project Documentation
 
+*   [PRODUCT_ROADMAP.md](docs/PRODUCT_ROADMAP.md): OmsiStudio long-term vision, modular structures, and milestones.
 *   [OMSISTUDIO_EPIC_BACKLOG.md](docs/backlog/OMSISTUDIO_EPIC_BACKLOG.md): Epic roadmap and tracking backlog.
+*   [ASSET_PREVIEW_SYSTEM_EPIC.md](docs/backlog/ASSET_PREVIEW_SYSTEM_EPIC.md): Completed software-rendered solid/wireframe asset preview epic.
+*   [REALISTIC_ASSET_PREVIEW_EPIC.md](docs/backlog/REALISTIC_ASSET_PREVIEW_EPIC.md): Planned epic for realistic, texture-mapped multi-mesh asset previews (future scope).
 *   [DOMAIN_MODEL.md](docs/domain/DOMAIN_MODEL.md): Deep-dive into domain entities and constraints.
 *   [O3D_FORMAT_RESEARCH.md](docs/spikes/O3D_FORMAT_RESEARCH.md): Research spike documentation regarding future binary mesh format supports.
 *   [AI_Governance Docs Folder](docs/AI_Governance/): Repository discovery rules, SDLC, templates, and agent guidelines.

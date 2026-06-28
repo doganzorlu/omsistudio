@@ -116,6 +116,12 @@ This document outlines the roadmap, priority groups, and status of OmsiStudio ta
     *   *Area*: `OmsiStudio.Core`, `OmsiStudio.OmsiFormat`
     *   *Exclusions*: No 3D rendering or viewport, no OBJ/glTF conversion/export.
 
+### OS-008 - Asset Preview System
+*   **OS-008-FEATURE-003 - Asset Preview System**
+    *   *Purpose*: Display parsed O3D mesh data in an interactive preview viewport with orbit, zoom, reset camera, wireframe, bounding box, and deterministic texture-aware material swatch support.
+    *   *Area*: `OmsiStudio.App`, `OmsiStudio.Core`, `OmsiStudio.OmsiFormat`
+    *   *Exclusions*: No glTF/OBJ/O3D export, no Blender integration, no package generation, no mesh editing, no real texture bitmap mapping, and no camera panning (Pan is future scope).
+
 ---
 
 ## 📋 Planned Backlog
@@ -124,11 +130,27 @@ This document outlines the roadmap, priority groups, and status of OmsiStudio ta
 *(No pending tasks)*
 
 ### P2 - Conversion Hazırlığı
-*(No pending tasks)*
-
+*   **OS-010-FEATURE-005 - O3D Converter**
+    *   *Purpose*: Convert binary `.o3d` files to standard 3D formats (glTF, OBJ) and vice-versa.
+    *   *Area*: `OmsiStudio.Conversion`, `OmsiStudio.Core`
 
 ### P2 - 3D/O3D Ön Hazırlık
-*(No pending tasks)*
+*   **OS-009-FEATURE-004 - Realistic OMSI Asset Preview**
+    *   *Purpose*: Render OMSI scenery objects textured with actual bitmap images mapped onto geometry faces, handling multi-mesh placements and transparency details.
+    *   *Area*: `OmsiStudio.App`, `OmsiStudio.Core`, `OmsiStudio.OmsiFormat`
+    *   *Exclusions*: No texture transcoding, no real-time shadows, and no PBR materials.
+    *   *Epic*: [REALISTIC_ASSET_PREVIEW_EPIC.md](REALISTIC_ASSET_PREVIEW_EPIC.md)
 
 ### P3 - Governance / Project Hygiene
 *(No pending tasks)*
+
+### P4 - Future Product Modules (Unplanned)
+*   **OS-020-FEATURE-006 - Human Editor**
+    *   *Purpose*: Configure pedestrian pathways, passenger behavior parameters, entry/exit coordinates, and voice triggers.
+    *   *Area*: Scenery & Path Editing
+*   **OS-030-FEATURE-007 - Spline Editor**
+    *   *Purpose*: Design road spline cross-section profiles, configure traffic paths, speed limits, and texture tiling.
+    *   *Area*: Road Splines Editing
+*   **OS-040-FEATURE-008 - Bus Editor**
+    *   *Purpose*: Modify vehicle physics curves, instrumentation wiring, dashboard script textures, and seating maps.
+    *   *Area*: Vehicle Customization

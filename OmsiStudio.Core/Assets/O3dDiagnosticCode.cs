@@ -58,5 +58,25 @@ public enum O3dDiagnosticCode
     /// <summary>
     /// An out-of-bounds vertex index was found in a triangle face.
     /// </summary>
-    InvalidIndex = 10
+    InvalidIndex = 10,
+
+    /// <summary>
+    /// The specified asset or model file path is invalid or empty.
+    /// </summary>
+    InvalidPath = 11,
+
+    /// <summary>
+    /// The file extension or format type is unsupported.
+    /// </summary>
+    UnsupportedFormat = 12,
+
+    /// <summary>
+    /// The model file was not found on the file system.
+    /// </summary>
+    FileNotFound = 13,
+
+    /// <summary>
+    /// The model loading process was cancelled.
+    /// </summary>
+    LoadCancelled = 14
 }

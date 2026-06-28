@@ -377,14 +377,269 @@ public class O3dGeometryReaderTests
         using var cts = new CancellationTokenSource();
         var reader = new TestO3dGeometryReader(path => 
             new CancellingStream(File.OpenRead(path), cts, cancelAfterBytesRead: 136));
-
         // Act & Assert
         await Assert.ThrowsAsync<OperationCanceledException>(async () =>
             await reader.ReadAsync(filePath, cts.Token)
         );
     }
 
+    [Fact]
+    public async Task ReadAsync_WithValid0x1984LegacyHeader_SucceedsAndReturnsExpectedGeometry()
+    {
+        // Arrange
+        using var ms = new MemoryStream();
+        using (var writer = new BinaryWriter(ms))
+        {
+            writer.Write((ushort)0x1984);
+            writer.Write((byte)3); // version
+
+            // Section 0x17
+            writer.Write((byte)0x17);
+            writer.Write((ushort)1); // count
+            writer.Write(1.0f); // X
+            writer.Write(2.0f); // Y
+            writer.Write(3.0f); // Z
+            writer.Write(0.0f); // NX
+            writer.Write(1.0f); // NY
+            writer.Write(0.0f); // NZ
+            writer.Write(0.5f); // U
+            writer.Write(0.5f); // V
+
+            // Section 0x26
+            writer.Write((byte)0x26);
+            writer.Write((ushort)1); // count
+            writer.Write(new byte[44]); // dummy attributes
+            writer.Write((byte)11); // nameLen
+            writer.Write(System.Text.Encoding.ASCII.GetBytes("texture.bmp"));
+
+            // Section 0x49
+            writer.Write((byte)0x49);
+            writer.Write((ushort)1); // count
+            writer.Write((ushort)0); // V0
+            writer.Write((ushort)0); // V1
+            writer.Write((ushort)0); // V2
+            writer.Write((ushort)0); // MaterialSlotIndex
+        }
+        var bytes = ms.ToArray();
+        var reader = new TestO3dGeometryReader(path => new MemoryStream(bytes));
+
+        // Act
+        var result = await reader.ReadAsync(Path.Combine(FixtureDirectory, "minimal_valid_geometry.o3d"));
+
+        // Assert
+        Assert.Equal(O3dGeometryStatus.Success, result.Status);
+        var meshData = result.MeshData;
+        Assert.NotNull(meshData);
+        var metadata = meshData.Metadata;
+        Assert.NotNull(metadata);
+        Assert.Equal(O3dFormatVersion.Legacy, metadata.Version);
+        Assert.Equal(3, metadata.RawVersion);
+        Assert.Single(meshData.Vertices);
+        Assert.Equal(1.0f, meshData.Vertices[0].X);
+        Assert.Single(meshData.Triangles);
+        Assert.Equal(0, meshData.Triangles[0].V0);
+        Assert.Single(meshData.MaterialSlots);
+        Assert.Equal("texture.bmp", meshData.MaterialSlots[0].TextureReference);
+    }
+
+    [Fact]
+    public async Task ReadAsync_WithValid0x1984LongHeader_SucceedsAndReturnsExpectedGeometry()
+    {
+        // Arrange
+        using var ms = new MemoryStream();
+        using (var writer = new BinaryWriter(ms))
+        {
+            writer.Write((ushort)0x1984);
+            writer.Write((byte)4); // version
+            writer.Write((byte)1); // options (long indices)
+            writer.Write((uint)0xffffffff); // encryption key
+
+            // Section 0x17
+            writer.Write((byte)0x17);
+            writer.Write((uint)1); // count
+            writer.Write(1.0f); // X
+            writer.Write(2.0f); // Y
+            writer.Write(3.0f); // Z
+            writer.Write(0.0f); // NX
+            writer.Write(1.0f); // NY
+            writer.Write(0.0f); // NZ
+            writer.Write(0.5f); // U
+            writer.Write(0.5f); // V
+
+            // Section 0x26
+            writer.Write((byte)0x26);
+            writer.Write((ushort)1); // count
+            writer.Write(new byte[44]); // dummy attributes
+            writer.Write((byte)11); // nameLen
+            writer.Write(System.Text.Encoding.ASCII.GetBytes("texture.bmp"));
+
+            // Section 0x49
+            writer.Write((byte)0x49);
+            writer.Write((uint)1); // count
+            writer.Write((uint)0); // V0
+            writer.Write((uint)0); // V1
+            writer.Write((uint)0); // V2
+            writer.Write((ushort)0); // MaterialSlotIndex
+        }
+        var bytes = ms.ToArray();
+        var reader = new TestO3dGeometryReader(path => new MemoryStream(bytes));
+
+        // Act
+        var result = await reader.ReadAsync(Path.Combine(FixtureDirectory, "minimal_valid_geometry.o3d"));
+
+        // Assert
+        Assert.Equal(O3dGeometryStatus.Success, result.Status);
+        var meshData = result.MeshData;
+        Assert.NotNull(meshData);
+        var metadata = meshData.Metadata;
+        Assert.NotNull(metadata);
+        Assert.Equal(O3dFormatVersion.Version3, metadata.Version);
+        Assert.Equal(4, metadata.RawVersion);
+        Assert.Single(meshData.Vertices);
+        Assert.Single(meshData.Triangles);
+        Assert.Single(meshData.MaterialSlots);
+        Assert.Equal("texture.bmp", meshData.MaterialSlots[0].TextureReference);
+    }
+
+    [Fact]
+    public async Task ReadAsync_WithEncrypted0x1984Header_ReturnsEncryptedStatus()
+    {
+        // Arrange
+        using var ms = new MemoryStream();
+        using (var writer = new BinaryWriter(ms))
+        {
+            writer.Write((ushort)0x1984);
+            writer.Write((byte)4); // version
+            writer.Write((byte)1); // options
+            writer.Write((uint)0x12345678); // encryption key
+        }
+        var bytes = ms.ToArray();
+        var reader = new TestO3dGeometryReader(path => new MemoryStream(bytes));
+
+        // Act
+        var result = await reader.ReadAsync(Path.Combine(FixtureDirectory, "minimal_valid_geometry.o3d"));
+
+        // Assert
+        Assert.Equal(O3dGeometryStatus.Encrypted, result.Status);
+        Assert.Null(result.MeshData);
+        Assert.Single(result.Diagnostics);
+        Assert.Equal(O3dDiagnosticCode.EncryptedFile, result.Diagnostics[0].Code);
+    }
+
+    [Fact]
+    public async Task ReadAsync_WithUnsupported0x1984Sections_SkipsThemAndSucceedsWithWarnings()
+    {
+        // Arrange
+        using var ms = new MemoryStream();
+        using (var writer = new BinaryWriter(ms))
+        {
+            writer.Write((ushort)0x1984);
+            writer.Write((byte)3); // version
+
+            // Section 0x17
+            writer.Write((byte)0x17);
+            writer.Write((ushort)1); // count
+            writer.Write(new byte[32]);
+
+            // Section 0x54 (bones)
+            writer.Write((byte)0x54);
+            writer.Write((ushort)1); // count
+            writer.Write((byte)4); // name length
+            writer.Write(System.Text.Encoding.ASCII.GetBytes("bone"));
+            writer.Write((ushort)1); // weights count
+            writer.Write(new byte[6]); // weights data
+
+            // Section 0x79 (transform matrix)
+            writer.Write((byte)0x79);
+            writer.Write(new byte[64]); // matrix
+
+            // Section 0x26
+            writer.Write((byte)0x26);
+            writer.Write((ushort)1); // count
+            writer.Write(new byte[44]); // dummy attributes
+            writer.Write((byte)0); // nameLen = 0
+
+            // Section 0x49
+            writer.Write((byte)0x49);
+            writer.Write((ushort)1); // count
+            writer.Write(new byte[8]);
+        }
+        var bytes = ms.ToArray();
+        var reader = new TestO3dGeometryReader(path => new MemoryStream(bytes));
+
+        // Act
+        var result = await reader.ReadAsync(Path.Combine(FixtureDirectory, "minimal_valid_geometry.o3d"));
+
+        // Assert
+        Assert.Equal(O3dGeometryStatus.Success, result.Status);
+        Assert.NotNull(result.MeshData);
+        Assert.Equal(2, result.Diagnostics.Count);
+        Assert.Contains("Unsupported section bone list", result.Diagnostics[0].Message);
+        Assert.Contains("Unsupported section transform", result.Diagnostics[1].Message);
+    }
+
+    [Fact]
+    public async Task ReadAsync_WithUnrecognized0x1984Section_StopsParsingAndSucceedsWithWarnings()
+    {
+        // Arrange
+        using var ms = new MemoryStream();
+        using (var writer = new BinaryWriter(ms))
+        {
+            writer.Write((ushort)0x1984);
+            writer.Write((byte)3); // version
+
+            // Section 0x17
+            writer.Write((byte)0x17);
+            writer.Write((ushort)1); // count
+            writer.Write(new byte[32]);
+
+            // Section 0xFE (unrecognized)
+            writer.Write((byte)0xFE);
+        }
+        var bytes = ms.ToArray();
+        var reader = new TestO3dGeometryReader(path => new MemoryStream(bytes));
+
+        // Act
+        var result = await reader.ReadAsync(Path.Combine(FixtureDirectory, "minimal_valid_geometry.o3d"));
+
+        // Assert
+        Assert.Equal(O3dGeometryStatus.Success, result.Status);
+        Assert.NotNull(result.MeshData);
+        Assert.Single(result.Diagnostics);
+        Assert.Contains("Unrecognized section byte 0xFE", result.Diagnostics[0].Message);
+    }
+
+    [Fact]
+    public async Task ReadAsync_With0x1984SafetyCheck_VertexCountLimitExceeded_ReturnsSafetyLimitExceeded()
+    {
+        // Arrange
+        using var ms = new MemoryStream();
+        using (var writer = new BinaryWriter(ms))
+        {
+            writer.Write((ushort)0x1984);
+            writer.Write((byte)4); // version
+            writer.Write((byte)0); // options
+            writer.Write((uint)0xffffffff); // encryption key
+
+            // Section 0x17 (vertices)
+            writer.Write((byte)0x17);
+            writer.Write((uint)1_000_001); // count > safety limit
+        }
+        var bytes = ms.ToArray();
+        var reader = new TestO3dGeometryReader(path => new MemoryStream(bytes));
+
+        // Act
+        var result = await reader.ReadAsync(Path.Combine(FixtureDirectory, "minimal_valid_geometry.o3d"));
+
+        // Assert
+        Assert.Equal(O3dGeometryStatus.Invalid, result.Status);
+        Assert.Null(result.MeshData);
+        Assert.Single(result.Diagnostics);
+        Assert.Equal(O3dDiagnosticCode.SafetyLimitExceeded, result.Diagnostics[0].Code);
+    }
+
     private class TestO3dGeometryReader : O3dGeometryReader
+
     {
         private readonly Func<string, Stream> _openFileFunc;
 

@@ -13,6 +13,7 @@ using OmsiStudio.Core.Services;
 using OmsiStudio.OmsiFormat.Parser;
 using OmsiStudio.OmsiFormat.Scanner;
 using OmsiStudio.App.Services;
+using OmsiStudio.App.Services.Rendering;
 using OmsiStudio.Core.Conversion;
 using OmsiStudio.Conversion;
 
@@ -31,6 +32,12 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IScanCacheService _scanCacheService;
     private CancellationTokenSource? _scanCts;
     private readonly object _scanLock = new();
+    private readonly IAssetPreviewLoader _previewLoader;
+    private CancellationTokenSource? _previewCts;
+    private readonly object _previewLock = new();
+    private readonly IMaterialTextureBindingService? _materialTextureBindingService;
+    [ObservableProperty]
+    private IRendererHost _rendererHost;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(RootDirectoryDisplay))]
@@ -118,6 +125,9 @@ public partial class MainWindowViewModel : ViewModelBase
     public bool HasNoSelectedAssetTextureReferences => !HasSelectedAssetTextureReferences;
 
     [ObservableProperty]
+    private IReadOnlyList<MaterialTextureBinding>? _previewTextureBindings;
+
+    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasScanMessages))]
     [NotifyPropertyChangedFor(nameof(HasScanWarnings))]
     [NotifyPropertyChangedFor(nameof(ScanWarningsDisplay))]
@@ -158,6 +168,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedAssetChanged(OmsiAsset? value)
     {
+        SelectedPreviewModelReference = null;
         ExportSuccessMessage = null;
         ExportErrorMessage = null;
 
@@ -204,6 +215,453 @@ public partial class MainWindowViewModel : ViewModelBase
 
         OnPropertyChanged(nameof(HasSelectedAssetTextureReferences));
         OnPropertyChanged(nameof(HasNoSelectedAssetTextureReferences));
+
+        OmsiModelReference? firstResolved = null;
+        if (value?.ModelReferences != null)
+        {
+            foreach (var modelRef in value.ModelReferences)
+            {
+                if (modelRef != null && modelRef.ResolutionStatus == OmsiModelReferenceResolutionStatus.Resolved)
+                {
+                    firstResolved = modelRef;
+                    break;
+                }
+            }
+        }
+
+        if (firstResolved == null)
+        {
+            lock (_previewLock)
+            {
+                _previewCts?.Cancel();
+                _previewCts = null;
+            }
+            PreviewStatus = AssetPreviewStatus.Idle;
+            PreviewResult = null;
+            PreviewTextureBindings = null;
+            RendererHost?.SetMesh(null);
+        }
+
+        SelectedPreviewModelReference = firstResolved;
+    }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsPreviewLoading))]
+    [NotifyPropertyChangedFor(nameof(PreviewStatusText))]
+    [NotifyPropertyChangedFor(nameof(HasPreview))]
+    private AssetPreviewStatus _previewStatus = AssetPreviewStatus.Idle;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PreviewDiagnostics))]
+    [NotifyPropertyChangedFor(nameof(HasPreviewDiagnostics))]
+    [NotifyPropertyChangedFor(nameof(HasPreview))]
+    [NotifyPropertyChangedFor(nameof(PreviewMeshSummaryText))]
+    [NotifyPropertyChangedFor(nameof(HasPreviewBounds))]
+    [NotifyPropertyChangedFor(nameof(PreviewBoundsSummary))]
+    [NotifyPropertyChangedFor(nameof(PreviewDiagnosticsBorderBrush))]
+    [NotifyPropertyChangedFor(nameof(PreviewDiagnosticsBackground))]
+    [NotifyPropertyChangedFor(nameof(PreviewDiagnosticsHeaderColor))]
+    [NotifyPropertyChangedFor(nameof(PreviewDiagnosticsTextColor))]
+    private AssetPreviewResult? _previewResult;
+
+    public ObservableCollection<MaterialDisplayItem> PreviewMaterials { get; } = [];
+
+    [ObservableProperty]
+    private int _renderVersion;
+
+    private bool _debugTriangleEnabled;
+    public bool DebugTriangleEnabled
+    {
+        get => _debugTriangleEnabled;
+        set
+        {
+            if (SetProperty(ref _debugTriangleEnabled, value))
+            {
+                if (RendererHost != null)
+                {
+                    RendererHost.DebugTriangleEnabled = value;
+                }
+                RenderVersion++;
+                OnPropertyChanged(nameof(HasPreview));
+            }
+        }
+    }
+
+    public bool LastFrameDrawAttempted => RendererHost?.LastFrameDrawAttempted ?? false;
+    public int LastFrameUploadedVertexCount => RendererHost?.LastFrameUploadedVertexCount ?? 0;
+    public int LastFrameUploadedIndexCount => RendererHost?.LastFrameUploadedIndexCount ?? 0;
+    public string LastGlError => RendererHost?.LastGlError ?? "NoError";
+
+    [ObservableProperty]
+    private bool _isOpenGlInitialized;
+
+    [ObservableProperty]
+    private bool _isRendererHostInitialized;
+
+    [ObservableProperty]
+    private int _openGlRenderCallCount;
+
+    [ObservableProperty]
+    private string? _lastViewportError;
+
+    public void NotifyRendererDebugStateChanged()
+    {
+        OnPropertyChanged(nameof(LastFrameDrawAttempted));
+        OnPropertyChanged(nameof(LastFrameUploadedVertexCount));
+        OnPropertyChanged(nameof(LastFrameUploadedIndexCount));
+        OnPropertyChanged(nameof(LastGlError));
+    }
+
+    public string PreviewDiagnosticsBorderBrush =>
+        PreviewDiagnostics.Any(d => d.Severity == O3dDiagnosticSeverity.Error)
+            ? "#ef4444"
+            : "#f59e0b";
+
+    public string PreviewDiagnosticsBackground =>
+        PreviewDiagnostics.Any(d => d.Severity == O3dDiagnosticSeverity.Error)
+            ? "#2d1c1c"
+            : "#2b2214";
+
+    public string PreviewDiagnosticsHeaderColor =>
+        PreviewDiagnostics.Any(d => d.Severity == O3dDiagnosticSeverity.Error)
+            ? "#f87171"
+            : "#fbbf24";
+
+    public string PreviewDiagnosticsTextColor =>
+        PreviewDiagnostics.Any(d => d.Severity == O3dDiagnosticSeverity.Error)
+            ? "#fca5a5"
+            : "#fde68a";
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSelectedPreviewModelReference))]
+    [NotifyPropertyChangedFor(nameof(PreviewModelDisplayName))]
+    private OmsiModelReference? _selectedPreviewModelReference;
+
+    public bool HasSelectedPreviewModelReference => SelectedPreviewModelReference != null;
+
+    public IReadOnlyList<O3dDiagnostic> PreviewDiagnostics => PreviewResult?.Diagnostics ?? [];
+
+    public bool HasPreview => (PreviewStatus == AssetPreviewStatus.Success && PreviewResult?.MeshData != null) || DebugTriangleEnabled;
+
+    public bool HasPreviewDiagnostics => PreviewDiagnostics.Count > 0;
+
+    public bool IsPreviewLoading => PreviewStatus == AssetPreviewStatus.Loading;
+
+    public string PreviewStatusText => _localizationService["PreviewStatus_" + PreviewStatus.ToString()];
+
+    public string PreviewModelDisplayName => SelectedPreviewModelReference?.MeshPath ?? string.Empty;
+
+    [ObservableProperty]
+    private float _cameraYaw = 45f;
+
+    [ObservableProperty]
+    private float _cameraPitch = -30f;
+
+    [ObservableProperty]
+    private float _cameraDistance = 5f;
+
+    [ObservableProperty]
+    private bool _showBoundingBox;
+
+    [ObservableProperty]
+    private bool _enableExperimentalGlPreview;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(VisualModeInt))]
+    private SoftwareViewportVisualMode _visualMode = SoftwareViewportVisualMode.Solid;
+
+    public int VisualModeInt
+    {
+        get => (int)VisualMode;
+        set
+        {
+            if (value >= 0 && value <= 2)
+            {
+                VisualMode = (SoftwareViewportVisualMode)value;
+            }
+        }
+    }
+
+    partial void OnCameraYawChanged(float value) => UpdateRendererHostCamera();
+
+    partial void OnCameraPitchChanged(float value)
+    {
+        var clamped = Math.Clamp(value, -89f, 89f);
+        if (Math.Abs(clamped - value) > 1e-5f)
+        {
+            CameraPitch = clamped;
+            return;
+        }
+        UpdateRendererHostCamera();
+    }
+
+    partial void OnCameraDistanceChanged(float value)
+    {
+        var clamped = Math.Clamp(value, 0.5f, 50f);
+        if (Math.Abs(clamped - value) > 1e-5f)
+        {
+            CameraDistance = clamped;
+            return;
+        }
+        UpdateRendererHostCamera();
+    }
+
+    partial void OnRendererHostChanged(IRendererHost value)
+    {
+        if (value != null)
+        {
+            value.DebugTriangleEnabled = DebugTriangleEnabled;
+        }
+        UpdateRendererHostCamera();
+    }
+
+    private void UpdateRendererHostCamera()
+    {
+        RendererHost?.SetCamera(new PreviewCameraState
+        {
+            Yaw = CameraYaw,
+            Pitch = CameraPitch,
+            Distance = CameraDistance
+        });
+    }
+
+    [RelayCommand]
+    private void ResetCamera()
+    {
+        CameraYaw = 45f;
+        CameraPitch = -30f;
+        CameraDistance = 5f;
+        UpdateRendererHostCamera();
+    }
+
+    [RelayCommand]
+    private void OrbitYawLeft()
+    {
+        CameraYaw = (CameraYaw - 15f) % 360f;
+    }
+
+    [RelayCommand]
+    private void OrbitYawRight()
+    {
+        CameraYaw = (CameraYaw + 15f) % 360f;
+    }
+
+    [RelayCommand]
+    private void OrbitPitchUp()
+    {
+        CameraPitch = Math.Clamp(CameraPitch + 15f, -89f, 89f);
+    }
+
+    [RelayCommand]
+    private void OrbitPitchDown()
+    {
+        CameraPitch = Math.Clamp(CameraPitch - 15f, -89f, 89f);
+    }
+
+    [RelayCommand]
+    private void ZoomIn()
+    {
+        CameraDistance = Math.Clamp(CameraDistance - 1f, 0.5f, 50f);
+    }
+
+    [RelayCommand]
+    private void ZoomOut()
+    {
+        CameraDistance = Math.Clamp(CameraDistance + 1f, 0.5f, 50f);
+    }
+
+    public bool HasPreviewBounds => PreviewResult?.Bounds != null;
+
+    public string PreviewBoundsSummary
+    {
+        get
+        {
+            var bounds = PreviewResult?.Bounds;
+            if (bounds == null)
+            {
+                return string.Empty;
+            }
+            return string.Format(_localizationService["PreviewBounds"], $"Min ({bounds.Min.X:F3}, {bounds.Min.Y:F3}, {bounds.Min.Z:F3}) Max ({bounds.Max.X:F3}, {bounds.Max.Y:F3}, {bounds.Max.Z:F3}) Size ({bounds.Size.X:F3}, {bounds.Size.Y:F3}, {bounds.Size.Z:F3})");
+        }
+    }
+
+    public string PreviewMeshSummaryText
+    {
+        get
+        {
+            var meshData = PreviewResult?.MeshData;
+            if (meshData == null)
+            {
+                return string.Empty;
+            }
+            return string.Format(_localizationService["PreviewMeshSummary"], meshData.Vertices.Count, meshData.Triangles.Count, meshData.MaterialSlots.Count);
+        }
+    }
+
+    partial void OnSelectedPreviewModelReferenceChanged(OmsiModelReference? value)
+    {
+        if (value != null)
+        {
+            _ = LoadPreviewCommand.ExecuteAsync(null);
+        }
+        else
+        {
+            lock (_previewLock)
+            {
+                _previewCts?.Cancel();
+                _previewCts = null;
+            }
+            PreviewStatus = AssetPreviewStatus.Idle;
+            PreviewResult = null;
+            PreviewTextureBindings = null;
+            RendererHost?.SetMesh(null);
+        }
+    }
+
+    [RelayCommand]
+    private void CancelPreview()
+    {
+        lock (_previewLock)
+        {
+            _previewCts?.Cancel();
+        }
+        PreviewTextureBindings = null;
+    }
+
+    public static string GetSceneryObjectsRoot(string? rootDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(rootDirectory))
+        {
+            return string.Empty;
+        }
+
+        string trimmed = rootDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string lastSegment = Path.GetFileName(trimmed);
+        if (string.Equals(lastSegment, "Sceneryobjects", StringComparison.OrdinalIgnoreCase))
+        {
+            return trimmed;
+        }
+
+        return Path.Combine(trimmed, "Sceneryobjects");
+    }
+
+    [RelayCommand]
+    private async Task LoadPreviewAsync(OmsiModelReference? modelReference = null)
+    {
+        if (modelReference != null)
+        {
+            if (SelectedPreviewModelReference != modelReference)
+            {
+                SelectedPreviewModelReference = modelReference;
+                return;
+            }
+        }
+
+        var modelRef = SelectedPreviewModelReference;
+        if (modelRef == null)
+        {
+            return;
+        }
+
+        CancellationToken token;
+        lock (_previewLock)
+        {
+            _previewCts?.Cancel();
+            _previewCts = new CancellationTokenSource();
+            token = _previewCts.Token;
+        }
+
+        PreviewStatus = AssetPreviewStatus.Loading;
+        PreviewResult = null;
+        PreviewTextureBindings = null;
+
+        try
+        {
+            var request = new AssetPreviewRequest
+            {
+                AssetId = SelectedAsset?.RelativePath ?? string.Empty,
+                ModelPath = modelRef.ResolvedPath
+            };
+
+            var result = await _previewLoader.LoadAsync(request, token);
+
+            token.ThrowIfCancellationRequested();
+
+            IReadOnlyList<MaterialTextureBinding>? bindings = null;
+            if (result.Status == AssetPreviewStatus.Success && result.MeshData != null && _materialTextureBindingService != null)
+            {
+                try
+                {
+                    bindings = await _materialTextureBindingService.BindAsync(
+                        result.MeshData,
+                        modelRef.ResolvedPath,
+                        GetSceneryObjectsRoot(RootDirectory),
+                        token);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception)
+                {
+                    // Ignore texture binding errors so they don't fail the overall preview
+                }
+            }
+
+            token.ThrowIfCancellationRequested();
+
+            await RunOnUiAsync(() =>
+            {
+                lock (_previewLock)
+                {
+                    if (token == _previewCts?.Token && !token.IsCancellationRequested)
+                    {
+                        PreviewResult = result;
+                        PreviewStatus = result.Status;
+                        PreviewTextureBindings = bindings;
+                        if (result.Status == AssetPreviewStatus.Success && result.MeshData != null)
+                        {
+                            RendererHost?.SetMesh(result.MeshData);
+                            RenderVersion++;
+                        }
+                        else
+                        {
+                            RendererHost?.SetMesh(null);
+                        }
+                    }
+                }
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            await RunOnUiAsync(() =>
+            {
+                lock (_previewLock)
+                {
+                    if (token == _previewCts?.Token)
+                    {
+                        PreviewStatus = AssetPreviewStatus.Cancelled;
+                        PreviewTextureBindings = null;
+                        RendererHost?.SetMesh(null);
+                    }
+                }
+            });
+        }
+        catch (Exception)
+        {
+            await RunOnUiAsync(() =>
+            {
+                lock (_previewLock)
+                {
+                    if (token == _previewCts?.Token)
+                    {
+                        PreviewStatus = AssetPreviewStatus.Failed;
+                        PreviewTextureBindings = null;
+                        RendererHost?.SetMesh(null);
+                    }
+                }
+            });
+        }
     }
 
     [ObservableProperty]
@@ -258,12 +716,16 @@ public partial class MainWindowViewModel : ViewModelBase
         _conversionService = new AssetConversionService();
         _uiDispatcher = new InlineUiDispatcher();
         _scanCacheService = new JsonScanCacheService();
+        _previewLoader = new NullAssetPreviewLoader();
+        _rendererHost = new OpenGlRendererHost();
 
         _localizationService.CultureChanged += (s, e) =>
         {
             UpdateScanProgressText();
+            UpdatePreviewMaterials();
             OnPropertyChanged(string.Empty);
         };
+        UpdateRendererHostCamera();
     }
 
     public MainWindowViewModel(IOmsiAssetScanner scanner) 
@@ -305,7 +767,10 @@ public partial class MainWindowViewModel : ViewModelBase
         ILocalizationService localizationService,
         IAssetConversionService? conversionService = null,
         IUiDispatcher? uiDispatcher = null,
-        IScanCacheService? scanCacheService = null)
+        IScanCacheService? scanCacheService = null,
+        IAssetPreviewLoader? previewLoader = null,
+        IRendererHost? rendererHost = null,
+        IMaterialTextureBindingService? materialTextureBindingService = null)
     {
         _scanner = scanner ?? throw new ArgumentNullException(nameof(scanner));
         _folderPickerService = folderPickerService ?? throw new ArgumentNullException(nameof(folderPickerService));
@@ -316,12 +781,65 @@ public partial class MainWindowViewModel : ViewModelBase
         _conversionService = conversionService ?? new AssetConversionService();
         _uiDispatcher = uiDispatcher ?? new InlineUiDispatcher();
         _scanCacheService = scanCacheService ?? new JsonScanCacheService();
+        _previewLoader = previewLoader ?? new NullAssetPreviewLoader();
+        _rendererHost = rendererHost ?? new OpenGlRendererHost();
+        _materialTextureBindingService = materialTextureBindingService;
 
         _localizationService.CultureChanged += (s, e) =>
         {
             UpdateScanProgressText();
+            UpdatePreviewMaterials();
             OnPropertyChanged(string.Empty);
         };
+        UpdateRendererHostCamera();
+    }
+
+    partial void OnPreviewResultChanged(AssetPreviewResult? value)
+    {
+        UpdatePreviewMaterials();
+    }
+
+    partial void OnPreviewTextureBindingsChanged(IReadOnlyList<MaterialTextureBinding>? value)
+    {
+        UpdatePreviewMaterials();
+    }
+
+    public bool HasPreviewMaterials => PreviewMaterials.Count > 0;
+
+    private void UpdatePreviewMaterials()
+    {
+        PreviewMaterials.Clear();
+        var mesh = PreviewResult?.MeshData;
+        if (mesh?.MaterialSlots != null)
+        {
+            for (int i = 0; i < mesh.MaterialSlots.Count; i++)
+            {
+                var slot = mesh.MaterialSlots[i];
+                string materialName = string.IsNullOrEmpty(slot.MaterialName) ? $"Material {i}" : slot.MaterialName;
+                string textureRef = string.IsNullOrEmpty(slot.TextureReference) 
+                    ? _localizationService["MaterialTextureMissing"] 
+                    : slot.TextureReference;
+
+                var color = MaterialColorSelector.GetMaterialColor(mesh, i);
+
+                MaterialTextureBinding? binding = null;
+                if (PreviewTextureBindings != null)
+                {
+                    foreach (var b in PreviewTextureBindings)
+                    {
+                        if (b.MaterialIndex == i)
+                        {
+                            binding = b;
+                            break;
+                        }
+                    }
+                }
+
+                string notBoundText = _localizationService["MaterialNotBound"];
+                PreviewMaterials.Add(new MaterialDisplayItem(materialName, textureRef, color, notBoundText, binding));
+            }
+        }
+        OnPropertyChanged(nameof(HasPreviewMaterials));
     }
 
     public async Task LoadSettingsAsync(CancellationToken cancellationToken = default)

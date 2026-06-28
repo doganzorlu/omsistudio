@@ -8,6 +8,8 @@ using OmsiStudio.Core.Scanning;
 using OmsiStudio.Core.Services;
 using OmsiStudio.App.ViewModels;
 using OmsiStudio.App.Services;
+using OmsiStudio.App.Services.Rendering;
+using CommunityToolkit.Mvvm.Input;
 using OmsiStudio.OmsiFormat.Parser;
 using OmsiStudio.OmsiFormat.Scanner;
 
@@ -2321,5 +2323,1276 @@ public class MainWindowViewModelTests
                 Errors = new List<string>()
             };
         }
+    }
+
+    [Fact]
+    public void Preview_NullLoader_FallbackWorks()
+    {
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        
+        var viewModel = new MainWindowViewModel(fakeScanner, fakeFolderPicker, appSettings, new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService());
+        
+        Assert.NotNull(viewModel);
+        Assert.Equal(AssetPreviewStatus.Idle, viewModel.PreviewStatus);
+        Assert.Null(viewModel.PreviewResult);
+        Assert.False(viewModel.HasSelectedPreviewModelReference);
+    }
+
+    [Fact]
+    public async Task Preview_LoadSuccessState_ShouldUpdateViewModelState()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        
+        var expectedResult = new AssetPreviewResult
+        {
+            Status = AssetPreviewStatus.Success,
+            MeshData = new O3dMeshData(),
+            Diagnostics = []
+        };
+        
+        fakeLoader.LoadFunc = (req, token) => Task.FromResult(expectedResult);
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            previewLoader: fakeLoader);
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+        var initialRenderVersion = viewModel.RenderVersion;
+
+        // Act
+        viewModel.SelectedPreviewModelReference = modelRef;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null)
+        {
+            await execution;
+        }
+
+        // Assert
+        Assert.Equal(AssetPreviewStatus.Success, viewModel.PreviewStatus);
+        Assert.Equal(expectedResult, viewModel.PreviewResult);
+        Assert.True(viewModel.HasPreview);
+        Assert.False(viewModel.HasPreviewDiagnostics);
+        Assert.Empty(viewModel.PreviewDiagnostics);
+        Assert.True(viewModel.RenderVersion > initialRenderVersion);
+    }
+
+    [Theory]
+    [InlineData(AssetPreviewStatus.Missing)]
+    [InlineData(AssetPreviewStatus.Invalid)]
+    [InlineData(AssetPreviewStatus.Failed)]
+    public async Task Preview_DiagnosticStates_ShouldReflectToViewModelState(AssetPreviewStatus status)
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        
+        var expectedResult = new AssetPreviewResult
+        {
+            Status = status,
+            Diagnostics = new List<O3dDiagnostic>
+            {
+                new() { Severity = O3dDiagnosticSeverity.Error, Message = "Test Diagnostic" }
+            }
+        };
+        
+        fakeLoader.LoadFunc = (req, token) => Task.FromResult(expectedResult);
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            previewLoader: fakeLoader);
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        // Act
+        viewModel.SelectedPreviewModelReference = modelRef;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null)
+        {
+            await execution;
+        }
+
+        // Assert
+        Assert.Equal(status, viewModel.PreviewStatus);
+        Assert.Equal(expectedResult, viewModel.PreviewResult);
+        Assert.False(viewModel.HasPreview);
+        Assert.True(viewModel.HasPreviewDiagnostics);
+        Assert.Single(viewModel.PreviewDiagnostics);
+        Assert.Equal("Test Diagnostic", viewModel.PreviewDiagnostics[0].Message);
+    }
+
+    [Fact]
+    public async Task Preview_Cancellation_ShouldTransitionToCancelledState()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        
+        var tcsLoaderStart = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var tcsLoaderResume = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        fakeLoader.LoadFunc = async (req, token) =>
+        {
+            tcsLoaderStart.SetResult(true);
+            try
+            {
+                await Task.Delay(5000, token);
+                return new AssetPreviewResult { Status = AssetPreviewStatus.Success };
+            }
+            catch (OperationCanceledException)
+            {
+                return new AssetPreviewResult { Status = AssetPreviewStatus.Cancelled };
+            }
+        };
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            previewLoader: fakeLoader);
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        // Act - Trigger load preview
+        viewModel.SelectedPreviewModelReference = modelRef;
+
+        // Wait until load starts
+        await tcsLoaderStart.Task;
+
+        // Verify status is Loading
+        Assert.Equal(AssetPreviewStatus.Loading, viewModel.PreviewStatus);
+        Assert.True(viewModel.IsPreviewLoading);
+
+        // Cancel
+        viewModel.CancelPreviewCommand.Execute(null);
+
+        // Wait for load task to complete
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null)
+        {
+            await execution;
+        }
+
+        // Assert
+        Assert.Equal(AssetPreviewStatus.Cancelled, viewModel.PreviewStatus);
+        Assert.False(viewModel.IsPreviewLoading);
+    }
+
+    [Fact]
+    public void Preview_CultureChange_UpdatesStatusTextDynamically()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var localization = new LocalizationService();
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), localization);
+
+        // Set state to Loading
+        localization.SetCulture("tr-TR");
+        viewModel.LoadPreviewCommand.Execute(new OmsiModelReference("mesh.o3d"));
+        
+        // Wait/Ensure it's loading (since fake loader is Idle by default, but we can set it explicitly or check state)
+        viewModel.PreviewStatus = AssetPreviewStatus.Loading;
+        Assert.Contains("Yükleniyor...", viewModel.PreviewStatusText);
+
+        // Act - Change culture to EN
+        viewModel.SetCultureCommand.Execute("en-US");
+
+        // Assert EN status text
+        Assert.Contains("Loading...", viewModel.PreviewStatusText);
+    }
+
+    [Fact]
+    public async Task Preview_WarningOnlyDiagnostics_ShouldSetHasPreviewDiagnosticsToTrue()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        
+        var expectedResult = new AssetPreviewResult
+        {
+            Status = AssetPreviewStatus.Success,
+            Diagnostics = new List<O3dDiagnostic>
+            {
+                new() { Severity = O3dDiagnosticSeverity.Warning, Message = "Test Warning Diagnostic" }
+            }
+        };
+        
+        fakeLoader.LoadFunc = (req, token) => Task.FromResult(expectedResult);
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            previewLoader: fakeLoader);
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        // Act
+        viewModel.SelectedPreviewModelReference = modelRef;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null)
+        {
+            await execution;
+        }
+
+        // Assert
+        Assert.True(viewModel.HasPreviewDiagnostics);
+        Assert.Single(viewModel.PreviewDiagnostics);
+        Assert.Equal("Test Warning Diagnostic", viewModel.PreviewDiagnostics[0].Message);
+        Assert.Equal(O3dDiagnosticSeverity.Warning, viewModel.PreviewDiagnostics[0].Severity);
+    }
+
+    [Fact]
+    public async Task Preview_DiagnosticsStyling_WarningVsError_ShouldHaveCorrectColors()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        
+        var warningResult = new AssetPreviewResult
+        {
+            Status = AssetPreviewStatus.Success,
+            Diagnostics = new List<O3dDiagnostic>
+            {
+                new() { Severity = O3dDiagnosticSeverity.Warning, Message = "A Warning" }
+            }
+        };
+        
+        fakeLoader.LoadFunc = (req, token) => Task.FromResult(warningResult);
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            previewLoader: fakeLoader);
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        // Act - Load warning only
+        viewModel.SelectedPreviewModelReference = modelRef;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null) await execution;
+
+        // Assert - Warning Colors (Amber/Orange)
+        Assert.Equal("#f59e0b", viewModel.PreviewDiagnosticsBorderBrush);
+        Assert.Equal("#2b2214", viewModel.PreviewDiagnosticsBackground);
+        Assert.Equal("#fbbf24", viewModel.PreviewDiagnosticsHeaderColor);
+        Assert.Equal("#fde68a", viewModel.PreviewDiagnosticsTextColor);
+
+        // Act - Load error
+        var errorResult = new AssetPreviewResult
+        {
+            Status = AssetPreviewStatus.Failed,
+            Diagnostics = new List<O3dDiagnostic>
+            {
+                new() { Severity = O3dDiagnosticSeverity.Error, Message = "An Error" }
+            }
+        };
+        fakeLoader.LoadFunc = (req, token) => Task.FromResult(errorResult);
+        await viewModel.LoadPreviewCommand.ExecuteAsync(null);
+
+        // Assert - Diagnostics State
+        Assert.Equal(AssetPreviewStatus.Failed, viewModel.PreviewStatus);
+        Assert.NotNull(viewModel.PreviewResult);
+        Assert.Single(viewModel.PreviewDiagnostics);
+        Assert.Equal(O3dDiagnosticSeverity.Error, viewModel.PreviewDiagnostics[0].Severity);
+
+        // Assert - Error Colors (Red)
+        Assert.Equal("#ef4444", viewModel.PreviewDiagnosticsBorderBrush);
+        Assert.Equal("#2d1c1c", viewModel.PreviewDiagnosticsBackground);
+        Assert.Equal("#f87171", viewModel.PreviewDiagnosticsHeaderColor);
+        Assert.Equal("#fca5a5", viewModel.PreviewDiagnosticsTextColor);
+    }
+
+    [Fact]
+    public void Preview_DebugTriangleToggle_PropagatesToRendererHost_AndUpdatesHasPreview()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeRendererHost = new NullRendererHost();
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            rendererHost: fakeRendererHost);
+
+        Assert.False(viewModel.DebugTriangleEnabled);
+        Assert.False(viewModel.HasPreview);
+        Assert.False(fakeRendererHost.DebugTriangleEnabled);
+
+        // Act
+        viewModel.DebugTriangleEnabled = true;
+
+        // Assert
+        Assert.True(viewModel.DebugTriangleEnabled);
+        Assert.True(viewModel.HasPreview);
+        Assert.True(fakeRendererHost.DebugTriangleEnabled);
+
+        // Act - reset
+        viewModel.DebugTriangleEnabled = false;
+
+        // Assert
+        Assert.False(viewModel.DebugTriangleEnabled);
+        Assert.False(viewModel.HasPreview);
+        Assert.False(fakeRendererHost.DebugTriangleEnabled);
+    }
+
+    [Fact]
+    public void Preview_NotifyRendererDebugStateChanged_TriggersPropertyChangeNotifications()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService());
+
+        var triggeredProperties = new List<string>();
+        viewModel.PropertyChanged += (sender, e) =>
+        {
+            if (e.PropertyName != null)
+            {
+                triggeredProperties.Add(e.PropertyName);
+            }
+        };
+
+        // Act
+        viewModel.NotifyRendererDebugStateChanged();
+
+        // Assert
+        Assert.Contains(nameof(viewModel.LastFrameDrawAttempted), triggeredProperties);
+        Assert.Contains(nameof(viewModel.LastFrameUploadedVertexCount), triggeredProperties);
+        Assert.Contains(nameof(viewModel.LastFrameUploadedIndexCount), triggeredProperties);
+        Assert.Contains(nameof(viewModel.LastGlError), triggeredProperties);
+    }
+
+    [Fact]
+    public void Preview_ObservableDiagnosticsProperties_RaisePropertyChanged()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService());
+
+        var triggeredProperties = new List<string>();
+        viewModel.PropertyChanged += (sender, e) =>
+        {
+            if (e.PropertyName != null)
+            {
+                triggeredProperties.Add(e.PropertyName);
+            }
+        };
+
+        // Act
+        viewModel.IsOpenGlInitialized = true;
+        viewModel.IsRendererHostInitialized = true;
+        viewModel.OpenGlRenderCallCount = 5;
+        viewModel.LastViewportError = "Some GL Error";
+        viewModel.ShowBoundingBox = true;
+        viewModel.EnableExperimentalGlPreview = true;
+
+        // Assert
+        Assert.Contains(nameof(viewModel.IsOpenGlInitialized), triggeredProperties);
+        Assert.Contains(nameof(viewModel.IsRendererHostInitialized), triggeredProperties);
+        Assert.Contains(nameof(viewModel.OpenGlRenderCallCount), triggeredProperties);
+        Assert.Contains(nameof(viewModel.LastViewportError), triggeredProperties);
+        Assert.Contains(nameof(viewModel.ShowBoundingBox), triggeredProperties);
+        Assert.Contains(nameof(viewModel.EnableExperimentalGlPreview), triggeredProperties);
+    }
+
+    [Fact]
+    public void Preview_VisualModeProperties_WorkCorrectly()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService());
+
+        var triggeredProperties = new List<string>();
+        viewModel.PropertyChanged += (sender, e) =>
+        {
+            if (e.PropertyName != null)
+            {
+                triggeredProperties.Add(e.PropertyName);
+            }
+        };
+
+        // Assert Default
+        Assert.Equal(SoftwareViewportVisualMode.Solid, viewModel.VisualMode);
+        Assert.Equal(1, viewModel.VisualModeInt);
+
+        // Act
+        viewModel.VisualMode = SoftwareViewportVisualMode.SolidWireframe;
+
+        // Assert
+        Assert.Equal(SoftwareViewportVisualMode.SolidWireframe, viewModel.VisualMode);
+        Assert.Equal(2, viewModel.VisualModeInt);
+        Assert.Contains(nameof(viewModel.VisualMode), triggeredProperties);
+        Assert.Contains(nameof(viewModel.VisualModeInt), triggeredProperties);
+
+        // Act 2
+        triggeredProperties.Clear();
+        viewModel.VisualModeInt = 1;
+
+        // Assert 2
+        Assert.Equal(SoftwareViewportVisualMode.Solid, viewModel.VisualMode);
+        Assert.Equal(1, viewModel.VisualModeInt);
+        Assert.Contains(nameof(viewModel.VisualMode), triggeredProperties);
+        Assert.Contains(nameof(viewModel.VisualModeInt), triggeredProperties);
+    }
+
+    [Fact]
+    public void Preview_CultureChange_UpdatesPreviewMaterialsLocalization()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var localization = new LocalizationService();
+        localization.SetCulture("en-US");
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), localization);
+
+        var meshData = new O3dMeshData
+        {
+            Vertices = new List<O3dVertex> { new() },
+            MaterialSlots = new List<O3dMaterialSlot> 
+            { 
+                new O3dMaterialSlot { MaterialName = "Mat0", TextureReference = null }
+            }
+        };
+        viewModel.PreviewResult = new AssetPreviewResult
+        {
+            Status = AssetPreviewStatus.Success,
+            MeshData = meshData
+        };
+
+        // Assert initial English "(No texture)"
+        Assert.Single(viewModel.PreviewMaterials);
+        Assert.Equal("(No texture)", viewModel.PreviewMaterials[0].TextureReference);
+
+        // Act - Switch to Turkish
+        localization.SetCulture("tr-TR");
+
+        // Assert Turkish "(Doku yok)"
+        Assert.Equal("(Doku yok)", viewModel.PreviewMaterials[0].TextureReference);
+    }
+
+    [Fact]
+    public void Preview_CultureChange_UpdatesNewLocalizationKeys()
+    {
+        // Arrange
+        var localization = new LocalizationService();
+
+        // Act - Culture is TR
+        localization.SetCulture("tr-TR");
+        var trPanelTitle = localization["PreviewPanelTitle"];
+        var trCancel = localization["CancelPreview"];
+        var trButton = localization["PreviewButton"];
+        var trPlaceholder = localization["PreviewPanelPlaceholder"];
+        var trMeshSummary = localization["PreviewMeshSummary"];
+        var trBounds = localization["PreviewBounds"];
+        var trNoModelSelected = localization["PreviewNoModelSelected"];
+        var trViewportInitFailed = localization["PreviewViewportInitFailed"];
+
+        // Assert TR translations
+        Assert.Equal("Model Önizleme Durumu", trPanelTitle);
+        Assert.Equal("İptal Et", trCancel);
+        Assert.Equal("Önizle", trButton);
+        Assert.Equal("3D modeli görüntülemek için bir mesh dosyası seçin ve Önizle butonuna tıklayın.", trPlaceholder);
+        Assert.Equal("Köşeler (Vertices): {0} | Üçgenler (Triangles): {1} | Materyaller: {2}", trMeshSummary);
+        Assert.Equal("Sınırlar: {0}", trBounds);
+        Assert.Equal("Önizleme yapılacak model seçilmedi.", trNoModelSelected);
+        Assert.Equal("OpenGL Önizleme Alanı Başlatılamadı", trViewportInitFailed);
+
+        // Act - Culture is EN
+        localization.SetCulture("en-US");
+        var enPanelTitle = localization["PreviewPanelTitle"];
+        var enCancel = localization["CancelPreview"];
+        var enButton = localization["PreviewButton"];
+        var enPlaceholder = localization["PreviewPanelPlaceholder"];
+        var enMeshSummary = localization["PreviewMeshSummary"];
+        var enBounds = localization["PreviewBounds"];
+        var enNoModelSelected = localization["PreviewNoModelSelected"];
+        var enViewportInitFailed = localization["PreviewViewportInitFailed"];
+
+        // Assert EN translations
+        Assert.Equal("Model Preview Status", enPanelTitle);
+        Assert.Equal("Cancel", enCancel);
+        Assert.Equal("Preview", enButton);
+        Assert.Equal("Select a mesh file and click Preview to view the 3D model.", enPlaceholder);
+        Assert.Equal("Vertices: {0} | Triangles: {1} | Materials: {2}", enMeshSummary);
+        Assert.Equal("Bounds: {0}", enBounds);
+        Assert.Equal("No model selected for preview.", enNoModelSelected);
+        Assert.Equal("OpenGL Viewport Initialization Failed", enViewportInitFailed);
+    }
+
+    [Fact]
+    public void Preview_ComputedProperties_ShouldReturnCorrectValues()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var localization = new LocalizationService();
+        localization.SetCulture("en-US");
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), localization);
+
+        // 1. Initial State (No Model Selected, No Preview Result)
+        Assert.Null(viewModel.SelectedPreviewModelReference);
+        Assert.Equal(string.Empty, viewModel.PreviewModelDisplayName);
+        Assert.False(viewModel.HasPreviewBounds);
+        Assert.Equal(string.Empty, viewModel.PreviewBoundsSummary);
+        Assert.Equal(string.Empty, viewModel.PreviewMeshSummaryText);
+
+        // 2. Model Reference Selected (But Result is still null)
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+        viewModel.SelectedPreviewModelReference = modelRef;
+        Assert.Equal("mesh.o3d", viewModel.PreviewModelDisplayName);
+        Assert.False(viewModel.HasPreviewBounds);
+        Assert.Equal(string.Empty, viewModel.PreviewBoundsSummary);
+        Assert.Equal(string.Empty, viewModel.PreviewMeshSummaryText);
+
+        // 3. Preview Result is set (With Bounds and MeshData)
+        var meshData = new O3dMeshData
+        {
+            Vertices = new List<O3dVertex> { new(), new() },
+            Triangles = new List<O3dTriangle> { new() },
+            MaterialSlots = new List<O3dMaterialSlot> 
+            { 
+                new O3dMaterialSlot { MaterialName = "Mat0", TextureReference = "tex0.png" },
+                new O3dMaterialSlot { MaterialName = "", TextureReference = null }
+            }
+        };
+
+        var bounds = new MeshBounds
+        {
+            Min = new PreviewVector3D { X = -1.0f, Y = -2.0f, Z = -3.0f },
+            Max = new PreviewVector3D { X = 1.0f, Y = 2.0f, Z = 3.0f },
+            Size = new PreviewVector3D { X = 2.0f, Y = 4.0f, Z = 6.0f }
+        };
+
+        var result = new AssetPreviewResult
+        {
+            Status = AssetPreviewStatus.Success,
+            MeshData = meshData,
+            Bounds = bounds
+        };
+
+        viewModel.PreviewResult = result;
+
+        Assert.True(viewModel.HasPreviewBounds);
+        Assert.Contains("Vertices: 2", viewModel.PreviewMeshSummaryText);
+        Assert.Contains("Triangles: 1", viewModel.PreviewMeshSummaryText);
+        Assert.Contains("Materials: 2", viewModel.PreviewMeshSummaryText);
+
+        Assert.True(viewModel.HasPreviewMaterials);
+        Assert.Equal(2, viewModel.PreviewMaterials.Count);
+        Assert.Equal("Mat0", viewModel.PreviewMaterials[0].MaterialName);
+        Assert.Equal("tex0.png", viewModel.PreviewMaterials[0].TextureReference);
+        Assert.Equal("Material 1", viewModel.PreviewMaterials[1].MaterialName);
+        Assert.Equal("(No texture)", viewModel.PreviewMaterials[1].TextureReference);
+
+        var minX = (-1.0f).ToString("F3");
+        var minY = (-2.0f).ToString("F3");
+        var minZ = (-3.0f).ToString("F3");
+        var maxX = (1.0f).ToString("F3");
+        var maxY = (2.0f).ToString("F3");
+        var maxZ = (3.0f).ToString("F3");
+        var sizeX = (2.0f).ToString("F3");
+        var sizeY = (4.0f).ToString("F3");
+        var sizeZ = (6.0f).ToString("F3");
+        var expectedSummary = $"Bounds: Min ({minX}, {minY}, {minZ}) Max ({maxX}, {maxY}, {maxZ}) Size ({sizeX}, {sizeY}, {sizeZ})";
+        Assert.Equal(expectedSummary, viewModel.PreviewBoundsSummary);
+    }
+
+    [Fact]
+    public async Task Preview_RendererHost_MeshPropagation_ShouldWorkCorrectly()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        var fakeRendererHost = new NullRendererHost();
+        
+        var meshData = new O3dMeshData();
+        var expectedResult = new AssetPreviewResult
+        {
+            Status = AssetPreviewStatus.Success,
+            MeshData = meshData
+        };
+        
+        fakeLoader.LoadFunc = (req, token) => Task.FromResult(expectedResult);
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            previewLoader: fakeLoader,
+            rendererHost: fakeRendererHost);
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        // Act - Trigger load preview
+        viewModel.SelectedPreviewModelReference = modelRef;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null)
+        {
+            await execution;
+        }
+
+        // Assert - Mesh is set on host
+        Assert.Equal(meshData, fakeRendererHost.CurrentMesh);
+
+        // Act - Reset SelectedPreviewModelReference to null
+        viewModel.SelectedPreviewModelReference = null;
+
+        // Assert - Mesh is cleared on host
+        Assert.Null(fakeRendererHost.CurrentMesh);
+    }
+
+    private class FakeAssetPreviewLoader : IAssetPreviewLoader
+    {
+        public Func<AssetPreviewRequest, CancellationToken, Task<AssetPreviewResult>>? LoadFunc { get; set; }
+
+        public Task<AssetPreviewResult> LoadAsync(AssetPreviewRequest request, CancellationToken cancellationToken = default)
+        {
+            if (LoadFunc != null)
+            {
+                return LoadFunc(request, cancellationToken);
+            }
+            return Task.FromResult(new AssetPreviewResult { Status = AssetPreviewStatus.Idle });
+        }
+    }
+
+    [Fact]
+    public void Preview_CameraState_InitializesCorrectly()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService());
+
+        // Assert
+        Assert.Equal(45f, viewModel.CameraYaw);
+        Assert.Equal(-30f, viewModel.CameraPitch);
+        Assert.Equal(5f, viewModel.CameraDistance);
+    }
+
+    [Fact]
+    public void Preview_CameraState_PropagatesToRendererHost()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeRendererHost = new NullRendererHost();
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            rendererHost: fakeRendererHost);
+
+        // Act & Assert
+        viewModel.CameraYaw = 90f;
+        Assert.NotNull(fakeRendererHost.CameraState);
+        Assert.Equal(90f, fakeRendererHost.CameraState.Yaw);
+
+        viewModel.CameraPitch = -15f;
+        Assert.Equal(-15f, fakeRendererHost.CameraState.Pitch);
+
+        viewModel.CameraDistance = 10f;
+        Assert.Equal(10f, fakeRendererHost.CameraState.Distance);
+    }
+
+    [Fact]
+    public void Preview_ResetCameraCommand_RestoresDefaultState()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeRendererHost = new NullRendererHost();
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            rendererHost: fakeRendererHost);
+
+        viewModel.CameraYaw = 90f;
+        viewModel.CameraPitch = -15f;
+        viewModel.CameraDistance = 10f;
+
+        // Act
+        viewModel.ResetCameraCommand.Execute(null);
+
+        // Assert
+        Assert.Equal(45f, viewModel.CameraYaw);
+        Assert.Equal(-30f, viewModel.CameraPitch);
+        Assert.Equal(5f, viewModel.CameraDistance);
+        
+        Assert.NotNull(fakeRendererHost.CameraState);
+        Assert.Equal(45f, fakeRendererHost.CameraState.Yaw);
+        Assert.Equal(-30f, fakeRendererHost.CameraState.Pitch);
+        Assert.Equal(5f, fakeRendererHost.CameraState.Distance);
+    }
+
+    [Fact]
+    public void Preview_CameraProperties_ClampCorrectly()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService());
+
+        // Act & Assert (Pitch clamp [-89, 89])
+        viewModel.CameraPitch = 100f;
+        Assert.Equal(89f, viewModel.CameraPitch);
+
+        viewModel.CameraPitch = -100f;
+        Assert.Equal(-89f, viewModel.CameraPitch);
+
+        // Act & Assert (Distance clamp [0.5, 50])
+        viewModel.CameraDistance = 60f;
+        Assert.Equal(50f, viewModel.CameraDistance);
+
+        viewModel.CameraDistance = 0.1f;
+        Assert.Equal(0.5f, viewModel.CameraDistance);
+    }
+
+    [Fact]
+    public void Preview_CameraCommands_ExecuteCorrectly()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService());
+
+        viewModel.CameraYaw = 45f;
+        viewModel.CameraPitch = 0f;
+        viewModel.CameraDistance = 5f;
+
+        // Act - Yaw commands
+        viewModel.OrbitYawLeftCommand.Execute(null);
+        Assert.Equal(30f, viewModel.CameraYaw);
+
+        viewModel.OrbitYawRightCommand.Execute(null);
+        Assert.Equal(45f, viewModel.CameraYaw);
+
+        // Act - Pitch commands
+        viewModel.OrbitPitchUpCommand.Execute(null);
+        Assert.Equal(15f, viewModel.CameraPitch);
+
+        viewModel.OrbitPitchDownCommand.Execute(null);
+        Assert.Equal(0f, viewModel.CameraPitch);
+
+        // Act - Zoom commands
+        viewModel.ZoomInCommand.Execute(null);
+        Assert.Equal(4f, viewModel.CameraDistance);
+
+        viewModel.ZoomOutCommand.Execute(null);
+        Assert.Equal(5f, viewModel.CameraDistance);
+    }
+
+    [Fact]
+    public void Preview_LocalizationKeys_ArePresentInBothLanguages()
+    {
+        // Arrange
+        var localization = new LocalizationService();
+
+        var keys = new[]
+        {
+            "CamYawLeft", "CamYawRight", "CamPitchUp", "CamPitchDown", "CamZoomIn", "CamZoomOut", "CamReset"
+        };
+
+        // Act & Assert - Turkish
+        localization.SetCulture("tr-TR");
+        foreach (var key in keys)
+        {
+            var value = localization[key];
+            Assert.NotEqual(key, value);
+            Assert.False(string.IsNullOrWhiteSpace(value));
+        }
+
+        // Act & Assert - English
+        localization.SetCulture("en-US");
+        foreach (var key in keys)
+        {
+            var value = localization[key];
+            Assert.NotEqual(key, value);
+            Assert.False(string.IsNullOrWhiteSpace(value));
+        }
+    }
+
+    private class FakeMaterialTextureBindingService : IMaterialTextureBindingService
+    {
+        public Func<O3dMeshData, string, string, CancellationToken, Task<IReadOnlyList<MaterialTextureBinding>>>? OnBindAsync { get; set; }
+
+        public Task<IReadOnlyList<MaterialTextureBinding>> BindAsync(O3dMeshData meshData, string modelFilePath, string sceneryObjectsRoot, CancellationToken cancellationToken = default)
+        {
+            return OnBindAsync?.Invoke(meshData, modelFilePath, sceneryObjectsRoot, cancellationToken)
+                ?? Task.FromResult<IReadOnlyList<MaterialTextureBinding>>(Array.Empty<MaterialTextureBinding>());
+        }
+    }
+
+    [Fact]
+    public async Task Preview_LoadSuccess_PopulatesPreviewTextureBindings()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader
+        {
+            LoadFunc = (req, token) => Task.FromResult(new AssetPreviewResult
+            {
+                Status = AssetPreviewStatus.Success,
+                MeshData = new O3dMeshData
+                {
+                    MaterialSlots = [new O3dMaterialSlot { MaterialName = "Mat", TextureReference = "tex.png" }]
+                }
+            })
+        };
+
+        var mockBindings = new List<MaterialTextureBinding>
+        {
+            new MaterialTextureBinding { MaterialIndex = 0, MaterialName = "Mat", TextureReference = "tex.png", Status = TextureBindingStatus.Bound }
+        };
+
+        var fakeBindingService = new FakeMaterialTextureBindingService
+        {
+            OnBindAsync = (mesh, path, root, token) => Task.FromResult<IReadOnlyList<MaterialTextureBinding>>(mockBindings)
+        };
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            previewLoader: fakeLoader,
+            materialTextureBindingService: fakeBindingService);
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        // Act
+        viewModel.SelectedPreviewModelReference = modelRef;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null) await execution;
+
+        // Assert
+        Assert.NotNull(viewModel.PreviewTextureBindings);
+        Assert.Single(viewModel.PreviewTextureBindings);
+        Assert.Equal(TextureBindingStatus.Bound, viewModel.PreviewTextureBindings[0].Status);
+    }
+
+    [Fact]
+    public async Task Preview_ResetOrCancel_ClearsPreviewTextureBindings()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader
+        {
+            LoadFunc = (req, token) => Task.FromResult(new AssetPreviewResult
+            {
+                Status = AssetPreviewStatus.Success,
+                MeshData = new O3dMeshData { MaterialSlots = [new O3dMaterialSlot { MaterialName = "Mat", TextureReference = "tex.png" }] }
+            })
+        };
+
+        var fakeBindingService = new FakeMaterialTextureBindingService
+        {
+            OnBindAsync = (mesh, path, root, token) => Task.FromResult<IReadOnlyList<MaterialTextureBinding>>([
+                new MaterialTextureBinding { MaterialIndex = 0, Status = TextureBindingStatus.Bound }
+            ])
+        };
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            previewLoader: fakeLoader,
+            materialTextureBindingService: fakeBindingService);
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        // 1. Load success
+        viewModel.SelectedPreviewModelReference = modelRef;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null) await execution;
+        Assert.NotNull(viewModel.PreviewTextureBindings);
+
+        // 2. Act - Reset selection
+        viewModel.SelectedPreviewModelReference = null;
+        Assert.Null(viewModel.PreviewTextureBindings);
+
+        // 3. Act - Reload and then Cancel
+        viewModel.SelectedPreviewModelReference = modelRef;
+        execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null) await execution;
+        Assert.NotNull(viewModel.PreviewTextureBindings);
+
+        viewModel.CancelPreviewCommand.Execute(null);
+        Assert.Null(viewModel.PreviewTextureBindings);
+    }
+
+    [Fact]
+    public async Task Preview_BindingServiceFails_PreviewRemainsSuccess()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader
+        {
+            LoadFunc = (req, token) => Task.FromResult(new AssetPreviewResult
+            {
+                Status = AssetPreviewStatus.Success,
+                MeshData = new O3dMeshData { MaterialSlots = [new O3dMaterialSlot { MaterialName = "Mat", TextureReference = "tex.png" }] }
+            })
+        };
+
+        var fakeBindingService = new FakeMaterialTextureBindingService
+        {
+            OnBindAsync = (mesh, path, root, token) => throw new Exception("Simulated loader/binding failure")
+        };
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            previewLoader: fakeLoader,
+            materialTextureBindingService: fakeBindingService);
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        // Act
+        viewModel.SelectedPreviewModelReference = modelRef;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null) await execution;
+
+        // Assert - Main preview status is still success
+        Assert.Equal(AssetPreviewStatus.Success, viewModel.PreviewStatus);
+        Assert.Null(viewModel.PreviewTextureBindings); // Bindings are empty/null due to error
+    }
+
+    [Theory]
+    [InlineData(null, "")]
+    [InlineData("", "")]
+    [InlineData("   ", "")]
+    [InlineData("/users/omsi", "/users/omsi/Sceneryobjects")]
+    [InlineData("/users/omsi/", "/users/omsi/Sceneryobjects")]
+    [InlineData("/users/omsi/Sceneryobjects", "/users/omsi/Sceneryobjects")]
+    [InlineData("/users/omsi/Sceneryobjects/", "/users/omsi/Sceneryobjects")]
+    [InlineData("/users/omsi/SCENERYOBJECTS", "/users/omsi/SCENERYOBJECTS")]
+    [InlineData("/users/omsi/FooSceneryobjects", "/users/omsi/FooSceneryobjects/Sceneryobjects")]
+    [InlineData("/users/omsi/SceneryobjectsBackup", "/users/omsi/SceneryobjectsBackup/Sceneryobjects")]
+    public void GetSceneryObjectsRoot_ResolvesPathCorrectly(string? input, string expected)
+    {
+        string actual = MainWindowViewModel.GetSceneryObjectsRoot(input);
+        
+        string normActual = actual.Replace('\\', '/').TrimEnd('/');
+        string normExpected = expected.Replace('\\', '/').TrimEnd('/');
+        Assert.Equal(normExpected, normActual);
+    }
+
+    [Fact]
+    public async Task Preview_BindingCancellation_RethrowsAndLeavesPreviewCancelled()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader
+        {
+            LoadFunc = (req, token) => Task.FromResult(new AssetPreviewResult
+            {
+                Status = AssetPreviewStatus.Success,
+                MeshData = new O3dMeshData { MaterialSlots = [new O3dMaterialSlot { MaterialName = "Mat", TextureReference = "tex.png" }] }
+            })
+        };
+
+        var fakeBindingService = new FakeMaterialTextureBindingService
+        {
+            OnBindAsync = (mesh, path, root, token) => throw new OperationCanceledException(token)
+        };
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            previewLoader: fakeLoader,
+            materialTextureBindingService: fakeBindingService);
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        // Act
+        viewModel.SelectedPreviewModelReference = modelRef;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null) await execution;
+
+        // Assert - Main preview status should be Cancelled
+        Assert.Equal(AssetPreviewStatus.Cancelled, viewModel.PreviewStatus);
+        Assert.Null(viewModel.PreviewTextureBindings);
+    }
+
+    [Fact]
+    public async Task Preview_CancelCommandDuringBinding_PreventsSuccessOverwrite()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader
+        {
+            LoadFunc = (req, token) => Task.FromResult(new AssetPreviewResult
+            {
+                Status = AssetPreviewStatus.Success,
+                MeshData = new O3dMeshData { MaterialSlots = [new O3dMaterialSlot { MaterialName = "Mat", TextureReference = "tex.png" }] }
+            })
+        };
+
+        MainWindowViewModel? viewModel = null;
+
+        var fakeBindingService = new FakeMaterialTextureBindingService
+        {
+            OnBindAsync = (mesh, path, root, token) =>
+            {
+                // Cancel preview VM command during the async binding call
+                viewModel?.CancelPreviewCommand.Execute(null);
+                
+                IReadOnlyList<MaterialTextureBinding> list = new List<MaterialTextureBinding>
+                {
+                    new MaterialTextureBinding { MaterialIndex = 0, Status = TextureBindingStatus.Bound }
+                };
+                return Task.FromResult(list);
+            }
+        };
+
+        viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), new LocalizationService(),
+            previewLoader: fakeLoader,
+            materialTextureBindingService: fakeBindingService);
+
+        var modelRef = new OmsiModelReference("mesh.o3d", "/path/to/mesh.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+
+        // Act
+        viewModel.SelectedPreviewModelReference = modelRef;
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null) await execution;
+
+        // Assert - Should remain Cancelled, and bindings must remain null
+        Assert.Equal(AssetPreviewStatus.Cancelled, viewModel.PreviewStatus);
+        Assert.Null(viewModel.PreviewTextureBindings);
+    }
+
+    [Fact]
+    public void UpdatePreviewMaterials_WithVariousBindings_MapsPropertiesCorrectly()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        var localization = new LocalizationService();
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), localization,
+            previewLoader: fakeLoader,
+            materialTextureBindingService: null);
+
+        var mesh = new O3dMeshData
+        {
+            MaterialSlots = new List<O3dMaterialSlot>
+            {
+                new O3dMaterialSlot { MaterialName = "Mat0", TextureReference = "tex0.png" },
+                new O3dMaterialSlot { MaterialName = "Mat1", TextureReference = "tex1.png" },
+                new O3dMaterialSlot { MaterialName = "Mat2", TextureReference = "tex2.png" },
+                new O3dMaterialSlot { MaterialName = "Mat3", TextureReference = "tex3.png" },
+            }
+        };
+
+        var previewResult = new AssetPreviewResult { MeshData = mesh, Status = AssetPreviewStatus.Success };
+
+        // 1. Assert null bindings case
+        viewModel.PreviewResult = previewResult; // Triggers UpdatePreviewMaterials
+        Assert.Equal(4, viewModel.PreviewMaterials.Count);
+        string notBoundText = localization["MaterialNotBound"];
+        Assert.All(viewModel.PreviewMaterials, m => Assert.Equal(notBoundText, m.BindingStatus));
+
+        // 2. Arrange bindings with varying statuses
+        var image = new TextureImageData { Width = 32, Height = 32, PixelsRgba32 = new byte[32 * 32 * 4] };
+        var bindings = new List<MaterialTextureBinding>
+        {
+            new MaterialTextureBinding
+            {
+                MaterialIndex = 0,
+                Status = TextureBindingStatus.Bound,
+                Image = image,
+                ResolvedTexture = new OmsiTextureReference
+                {
+                    TexturePath = "tex0.png",
+                    ResolvedPath = "/path/to/tex0.png",
+                    Exists = true,
+                    ResolutionStatus = OmsiTextureReferenceResolutionStatus.Resolved
+                }
+            },
+            new MaterialTextureBinding
+            {
+                MaterialIndex = 1,
+                Status = TextureBindingStatus.Missing,
+                Diagnostics = new List<O3dDiagnostic> { new O3dDiagnostic { Severity = O3dDiagnosticSeverity.Warning, Message = "Doku yok" } }
+            },
+            new MaterialTextureBinding
+            {
+                MaterialIndex = 2,
+                Status = TextureBindingStatus.Unsupported,
+                Diagnostics = new List<O3dDiagnostic> { new O3dDiagnostic { Severity = O3dDiagnosticSeverity.Error, Message = "Desteklenmiyor" } }
+            }
+        };
+
+        // Act
+        viewModel.PreviewTextureBindings = bindings; // Triggers UpdatePreviewMaterials
+
+        // Assert - Slot 0 (Bound)
+        var item0 = viewModel.PreviewMaterials[0];
+        Assert.Equal("Bound", item0.BindingStatus);
+        Assert.Equal("32x32", item0.ImageSizeText);
+        Assert.Equal("/path/to/tex0.png", item0.ResolvedPath);
+        Assert.False(item0.HasDiagnostics);
+
+        // Assert - Slot 1 (Missing)
+        var item1 = viewModel.PreviewMaterials[1];
+        Assert.Equal("Missing", item1.BindingStatus);
+        Assert.True(item1.HasDiagnostics);
+        Assert.Equal("Doku yok", item1.DiagnosticsText);
+
+        // Assert - Slot 2 (Unsupported)
+        var item2 = viewModel.PreviewMaterials[2];
+        Assert.Equal("Unsupported", item2.BindingStatus);
+        Assert.True(item2.HasDiagnostics);
+        Assert.Equal("Desteklenmiyor", item2.DiagnosticsText);
+
+        // Assert - Slot 3 (Unbound)
+        var item3 = viewModel.PreviewMaterials[3];
+        Assert.Equal(notBoundText, item3.BindingStatus);
+    }
+
+    [Fact]
+    public async Task SelectedAsset_Changed_AutoLoadsFirstResolvedModelReference()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        var localization = new LocalizationService();
+
+        var resolvedModel = new OmsiModelReference("mesh_resolved.o3d", "/path/mesh_resolved.o3d", true, OmsiModelReferenceResolutionStatus.Resolved);
+        var unresolvedModel = new OmsiModelReference("mesh_unresolved.o3d", "/path/mesh_unresolved.o3d", false, OmsiModelReferenceResolutionStatus.Missing);
+
+        var asset = new OmsiAsset
+        {
+            RelativePath = "scenery/object.sco",
+            ModelReferences = new List<OmsiModelReference>
+            {
+                unresolvedModel,
+                resolvedModel
+            }
+        };
+
+        var meshData = new O3dMeshData();
+        var previewResult = new AssetPreviewResult { MeshData = meshData, Status = AssetPreviewStatus.Success };
+        fakeLoader.LoadFunc = (req, ct) => Task.FromResult(previewResult);
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), localization,
+            previewLoader: fakeLoader,
+            materialTextureBindingService: null);
+
+        // Act
+        viewModel.SelectedAsset = asset;
+
+        // Assert - should automatically select the first resolved model reference and load it
+        Assert.Same(resolvedModel, viewModel.SelectedPreviewModelReference);
+
+        var execution = ((IAsyncRelayCommand)viewModel.LoadPreviewCommand).ExecutionTask;
+        if (execution != null) await execution;
+
+        Assert.Equal(AssetPreviewStatus.Success, viewModel.PreviewStatus);
+        Assert.Same(previewResult, viewModel.PreviewResult);
+    }
+
+    [Fact]
+    public void SelectedAsset_Changed_ClearsPreviewIfNoResolvedModelReference()
+    {
+        // Arrange
+        var fakeScanner = new FakeAssetScanner();
+        var fakeFolderPicker = new FakeFolderPickerService();
+        var appSettings = new FakeAppSettingsService();
+        var fakeLoader = new FakeAssetPreviewLoader();
+        var localization = new LocalizationService();
+
+        var unresolvedModel = new OmsiModelReference("mesh_unresolved.o3d", "/path/mesh_unresolved.o3d", false, OmsiModelReferenceResolutionStatus.Missing);
+
+        var asset = new OmsiAsset
+        {
+            RelativePath = "scenery/object.sco",
+            ModelReferences = new List<OmsiModelReference> { unresolvedModel }
+        };
+
+        var viewModel = new MainWindowViewModel(
+            fakeScanner, fakeFolderPicker, appSettings,
+            new FakeClipboardService(), new FakeFileLauncherService(), localization,
+            previewLoader: fakeLoader,
+            materialTextureBindingService: null);
+
+        // Setup dummy pre-existing preview state to verify it gets cleared
+        viewModel.PreviewResult = new AssetPreviewResult { MeshData = new O3dMeshData(), Status = AssetPreviewStatus.Success };
+        viewModel.PreviewStatus = AssetPreviewStatus.Success;
+
+        // Act
+        viewModel.SelectedAsset = asset;
+
+        // Assert
+        Assert.Null(viewModel.SelectedPreviewModelReference);
+        Assert.Equal(AssetPreviewStatus.Idle, viewModel.PreviewStatus);
+        Assert.Null(viewModel.PreviewResult);
     }
 }
